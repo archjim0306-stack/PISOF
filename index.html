@@ -222,6 +222,140 @@ body.mobile-layout #search-input { font-size: 16px; } /* prevent zoom on iOS */
 body.mobile-layout .ventas-body { padding: 8px 10px; }
 body.mobile-layout .ventas-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
 body.mobile-layout .ventas-actions { flex-wrap: wrap; gap: 6px; }
+/* ── Mobile nav: show only 4 items + "Más" button ── */
+body.mobile-layout #sidebar .nav-item[data-view="prestamos"],
+body.mobile-layout #sidebar .nav-item[data-view="stock"],
+body.mobile-layout #sidebar .nav-item[data-view="inventario"],
+body.mobile-layout #sidebar .nav-item[data-view="cierre"],
+body.mobile-layout #sidebar .nav-item[data-view="ajustes"] {
+  display: none;
+}
+#mobile-more-btn {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  font-size: 10px;
+  flex: 1;
+  min-width: 52px;
+  justify-content: center;
+  align-items: center;
+  border-radius: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  transition: background var(--transition), color var(--transition);
+}
+body.mobile-layout #mobile-more-btn { display: flex; }
+#mobile-more-btn:hover, #mobile-more-btn.active-more { color: var(--accent); background: var(--accent-bg); }
+
+/* ── Mobile nav overflow drawer ── */
+#mobile-nav-drawer {
+  position: fixed;
+  bottom: 56px;
+  left: 0; right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 9990;
+  padding: 8px;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,.2);
+  border-radius: 16px 16px 0 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+#mobile-nav-drawer.open { display: flex; }
+.mobile-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: background var(--transition), color var(--transition);
+}
+.mobile-drawer-item:hover, .mobile-drawer-item.active { background: var(--accent-bg); color: var(--accent); }
+.mobile-drawer-item svg { flex-shrink: 0; }
+#mobile-nav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9989;
+  background: rgba(0,0,0,.4);
+}
+#mobile-nav-backdrop.open { display: block; }
+
+/* ── Barcode scanner overlay ── */
+#barcode-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99000;
+  background: #000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+#barcode-overlay.open { display: flex; }
+#barcode-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#barcode-aim {
+  position: absolute;
+  width: min(72vw, 300px);
+  height: 160px;
+  border: 3px solid rgba(255,255,255,.8);
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.55);
+  pointer-events: none;
+}
+#barcode-aim::before {
+  content: '';
+  position: absolute;
+  left: 10%; right: 10%;
+  top: 50%;
+  height: 2px;
+  background: var(--accent);
+  animation: scanLine 1.6s ease-in-out infinite;
+}
+@keyframes scanLine {
+  0%, 100% { top: 15%; opacity: 1; }
+  50% { top: 80%; opacity: .7; }
+}
+#barcode-msg {
+  position: absolute;
+  bottom: 100px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+  padding: 0 20px;
+  text-shadow: 0 1px 4px rgba(0,0,0,.8);
+}
+#barcode-close {
+  position: absolute;
+  top: 20px; right: 20px;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+#btn-scan-ventas { display: none; }
+body.mobile-layout #btn-scan-ventas { display: inline-flex; }
+
 /* Mobile layout toggle button */
 #mobile-layout-btn {
   position: fixed;
@@ -1871,6 +2005,11 @@ select.settings-input {
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
         <span class="nav-label">Ajustes</span>
       </div>
+      <!-- Mobile "Más" button — only visible in mobile-layout mode -->
+      <button id="mobile-more-btn" onclick="toggleMobileDrawer()">
+        <span style="font-size:18px">⋯</span>
+        <span>Más</span>
+      </button>
     </div>
     <div class="sidebar-toggle">
       <button class="toggle-btn" id="sidebar-toggle-btn">
@@ -1911,6 +2050,10 @@ select.settings-input {
             Stock
           </button>
           <button class="btn btn-green" onclick="openCobrar()" id="btn-cobrar">F10 Cobrar</button>
+          <button class="btn btn-sm" id="btn-scan-ventas" onclick="openBarcodeScanner('ventas')" title="Escanear código de barras" style="background:var(--surface2);border:1.5px solid var(--border);color:var(--text-2);gap:5px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Scan
+          </button>
         </div>
       </div>
       <div class="ventas-body" id="ventas-body">
@@ -5951,28 +6094,21 @@ function invOpenCamera() {
 
 
 // ── Online/offline indicator ────────────────
-const _syncDot   = document.createElement('div');
-_syncDot.id      = 'sync-status';
-_syncDot.style.cssText = `
-  position:fixed; bottom:14px; right:16px; z-index:9000;
-  display:flex; align-items:center; gap:6px;
-  background:#fff; border:1px solid #ebebeb;
-  border-radius:999px; padding:5px 12px;
-  font-size:11px; font-weight:600; color:#555;
-  box-shadow:0 2px 8px rgba(0,0,0,.08);
-  transition: all .3s;
-`;
+const _syncDot = document.createElement('div');
+_syncDot.id = 'sync-status';
+_syncDot.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:9000;width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.7);transition:background .4s;';
 document.body.appendChild(_syncDot);
 
+(function(){
+  const s = document.createElement('style');
+  s.textContent = '@keyframes syncPulse{from{opacity:1}to{opacity:.3}}';
+  document.head.appendChild(s);
+})();
+
 function _setSyncStatus(status) {
-  const map = {
-    online:  { color:'#16a34a', label:'Sincronizado'   },
-    offline: { color:'#d97706', label:'Sin conexión'   },
-    syncing: { color:'#1c6ef3', label:'Sincronizando…' },
-    error:   { color:'#dc2626', label:'Error de sync'  },
-  };
-  const s = map[status] || map.online;
-  _syncDot.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:${s.color};display:inline-block"></span>${s.label}`;
+  const colors = { online:'#16a34a', offline:'#d97706', syncing:'#1c6ef3', error:'#dc2626' };
+  _syncDot.style.background = colors[status] || colors.online;
+  _syncDot.style.animation = status === 'syncing' ? 'syncPulse .7s ease-in-out infinite alternate' : 'none';
 }
 
 window.addEventListener('online',  () => { _setSyncStatus('online');  _pushPendingQueue(); });
@@ -6360,6 +6496,184 @@ if (window._firebaseReady) setTimeout(_startFirebase, 100);
 // INIT
 // ══════════════════════════════════════════
 // ══════════════════════════════════════════
+// MOBILE NAV DRAWER
+// ══════════════════════════════════════════
+function toggleMobileDrawer() {
+  const drawer = document.getElementById('mobile-nav-drawer');
+  const backdrop = document.getElementById('mobile-nav-backdrop');
+  const btn = document.getElementById('mobile-more-btn');
+  const isOpen = drawer.classList.toggle('open');
+  backdrop.classList.toggle('open', isOpen);
+  btn.classList.toggle('active-more', isOpen);
+}
+
+function closeMobileDrawer() {
+  document.getElementById('mobile-nav-drawer').classList.remove('open');
+  document.getElementById('mobile-nav-backdrop').classList.remove('open');
+  document.getElementById('mobile-more-btn').classList.remove('active-more');
+}
+
+function mobileDrawerNav(view) {
+  closeMobileDrawer();
+  navigateTo(view);
+}
+
+// Sync drawer highlight when navigating
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('[data-view]');
+  if (!item) return;
+  const view = item.dataset.view;
+  if (!view) return;
+  document.querySelectorAll('#mobile-nav-drawer .mobile-drawer-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+});
+
+// ══════════════════════════════════════════
+// BARCODE SCANNER — nativo BarcodeDetector + fallback getUserMedia+canvas
+// ══════════════════════════════════════════
+let _barcodeStream  = null;
+let _barcodeContext = null;
+let _barcodeActive  = false;
+let _barcodeRAF     = null;
+
+async function openBarcodeScanner(context) {
+  _barcodeContext = context || 'ventas';
+  const overlay = document.getElementById('barcode-overlay');
+  const video   = document.getElementById('barcode-video');
+  const msg     = document.getElementById('barcode-msg');
+
+  overlay.classList.add('open');
+  _barcodeActive = true;
+  msg.textContent = 'Cargando cámara…';
+
+  try {
+    // Request camera — back-facing preferred
+    _barcodeStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = _barcodeStream;
+    await video.play();
+    msg.textContent = 'Apunta al código de barras';
+
+    // — Strategy 1: native BarcodeDetector (iOS 17+, Android Chrome)
+    if ('BarcodeDetector' in window) {
+      const formats = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code','data_matrix','itf','codabar'];
+      let supported = formats;
+      try { supported = await BarcodeDetector.getSupportedFormats(); } catch(e) {}
+      const detector = new BarcodeDetector({ formats: supported });
+      const _tick = async () => {
+        if (!_barcodeActive) return;
+        try {
+          const results = await detector.detect(video);
+          if (results.length) { _onBarcodeDetected(results[0].rawValue); return; }
+        } catch(e) {}
+        _barcodeRAF = requestAnimationFrame(_tick);
+      };
+      _barcodeRAF = requestAnimationFrame(_tick);
+
+    // — Strategy 2: canvas snapshot every 200ms decoded via jscanify-free approach
+    // We use the QuaggaJS CDN as fallback (no WASM, pure JS, works on HTTP too)
+    } else {
+      msg.textContent = 'Cargando decoder…';
+      await _loadQuagga();
+      msg.textContent = 'Apunta al código de barras';
+      _startQuagga(video);
+    }
+
+  } catch(e) {
+    const errMsg = e && e.message ? e.message : String(e);
+    msg.textContent = '⚠️ ' + (errMsg.includes('Permission') ? 'Permiso de cámara denegado' : errMsg);
+    console.error('[Scanner]', e);
+    showToast('Error de cámara — verifica permisos', 'error');
+  }
+}
+
+function _loadQuagga() {
+  if (window.Quagga) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function _startQuagga(video) {
+  if (!window.Quagga || !_barcodeActive) return;
+  const canvas = document.createElement('canvas');
+  const ctx    = canvas.getContext('2d');
+
+  const scan = () => {
+    if (!_barcodeActive) return;
+    if (video.readyState < 2) { setTimeout(scan, 200); return; }
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    Quagga.decodeSingle({
+      decoder: { readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader','upc_e_reader'] },
+      locate: true,
+      src: canvas.toDataURL('image/png')
+    }, result => {
+      if (!_barcodeActive) return;
+      if (result && result.codeResult) {
+        _onBarcodeDetected(result.codeResult.code);
+      } else {
+        setTimeout(scan, 250);
+      }
+    });
+  };
+  setTimeout(scan, 500);
+}
+
+function _onBarcodeDetected(code) {
+  if (!code || !_barcodeActive) return;
+  closeBarcodeScanner();
+
+  if (_barcodeContext === 'ventas') {
+    const input = document.getElementById('search-input');
+    if (input) {
+      input.value = code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      setTimeout(() => {
+        const first = document.querySelector('.autocomplete-item');
+        if (first) first.click();
+        else {
+          const match = state.products.find(p => p.code === code);
+          if (match) addToTicket(match);
+          else showToast('Código no encontrado: ' + code, 'warn');
+        }
+      }, 250);
+    }
+  } else if (_barcodeContext === 'inventario') {
+    const input = document.getElementById('inv-scan-input');
+    if (input) {
+      input.value = code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      setTimeout(() => invHandleInput(code), 200);
+    }
+  }
+
+  try { navigator.vibrate && navigator.vibrate(60); } catch(e) {}
+  showToast('✅ ' + code, 'success');
+}
+
+function closeBarcodeScanner() {
+  _barcodeActive = false;
+  if (_barcodeRAF) { cancelAnimationFrame(_barcodeRAF); _barcodeRAF = null; }
+  document.getElementById('barcode-overlay').classList.remove('open');
+  const video = document.getElementById('barcode-video');
+  if (video) { video.pause(); video.srcObject = null; }
+  if (_barcodeStream) { _barcodeStream.getTracks().forEach(t => t.stop()); _barcodeStream = null; }
+}
+
+// Hook inventario camera button
+function invOpenCamera() { openBarcodeScanner('inventario'); }
+
+// ══════════════════════════════════════════
 // MOBILE LAYOUT TOGGLE
 // ══════════════════════════════════════════
 function toggleMobileLayout() {
@@ -6465,6 +6779,40 @@ self.addEventListener('fetch', e => {
 </script>
 <!-- Mobile layout toggle button -->
 <button id="mobile-layout-btn" onclick="toggleMobileLayout()" title="Alternar vista móvil/escritorio">📱</button>
+
+<!-- Barcode scanner overlay -->
+<div id="barcode-overlay">
+  <video id="barcode-video" playsinline autoplay muted></video>
+  <div id="barcode-aim"></div>
+  <div id="barcode-msg">Apunta al código de barras</div>
+  <button id="barcode-close" onclick="closeBarcodeScanner()">✕</button>
+</div>
+
+<!-- Mobile nav backdrop -->
+<div id="mobile-nav-backdrop" onclick="closeMobileDrawer()"></div>
+<!-- Mobile nav overflow drawer -->
+<div id="mobile-nav-drawer">
+  <div class="mobile-drawer-item" data-view="prestamos" onclick="mobileDrawerNav('prestamos')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Préstamos
+  </div>
+  <div class="mobile-drawer-item" data-view="stock" onclick="mobileDrawerNav('stock')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+    Stock
+  </div>
+  <div class="mobile-drawer-item" data-view="inventario" onclick="mobileDrawerNav('inventario')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
+    Inventario
+  </div>
+  <div class="mobile-drawer-item" data-view="cierre" onclick="mobileDrawerNav('cierre')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    Cierre de Día
+  </div>
+  <div class="mobile-drawer-item" data-view="ajustes" onclick="mobileDrawerNav('ajustes')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    Ajustes
+  </div>
+</div>
 
 </body>
 </html>
