@@ -3505,6 +3505,8 @@ function finalizeSale() {
       dbSaveProduct(prod);
     }
   });
+  // Re-render stock view immediately (no need to wait for Firebase)
+  renderStockView();
 
   closeModal('modal-cobrar');
   showToast(`Venta ${folio} guardada — $${total.toFixed(2)}`, 'success');
@@ -5394,12 +5396,13 @@ function saveStockFromTicket() {
     const prod = state.products.find(p => String(p.id) === String(item.prodId) || p.code === item.code);
     if (prod) {
       prod.stock = (prod.stock || 0) + item.qty;
-      dbSaveProduct(prod);
+      dbSaveProduct(prod); // async to Firebase, but state is already updated
       updated++;
     }
   });
   showToast(`Stock actualizado — ${updated} producto(s) sumados`, 'success');
-  toggleStockMode(); // turns off stock mode and clears ticket
+  toggleStockMode();
+  renderStockView(); // render immediately from in-memory state (no need to wait for Firebase)
   navigateTo('stock');
 }
 
@@ -5887,6 +5890,7 @@ function _initListeners() {
     });
     refreshAllDynamicFilters();
     if (state.currentView === 'productos') renderProducts();
+    if (state.currentView === 'stock')     renderStockView();
   });
 
   // Historial
