@@ -170,8 +170,82 @@ input::placeholder { color: var(--text-3); font-weight: 400; }
 #sidebar.collapsed .toggle-label { opacity: 0; width: 0; overflow: hidden; }
 
 /* ═══════════════════════════════════════════════════
-   MAIN CONTENT
+   MOBILE LAYOUT — sidebar becomes bottom tab bar
 ═══════════════════════════════════════════════════ */
+body.mobile-layout #app {
+  flex-direction: column;
+}
+body.mobile-layout #sidebar {
+  width: 100% !important;
+  height: 56px;
+  flex-direction: row;
+  border-right: none;
+  border-top: 1px solid var(--border);
+  order: 2;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+body.mobile-layout #sidebar .sidebar-logo,
+body.mobile-layout #sidebar .sidebar-toggle { display: none; }
+body.mobile-layout #sidebar .sidebar-nav {
+  flex-direction: row;
+  padding: 0;
+  gap: 0;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  justify-content: space-around;
+  align-items: stretch;
+}
+body.mobile-layout #sidebar .nav-item {
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  font-size: 10px;
+  flex: 1;
+  min-width: 52px;
+  justify-content: center;
+  border-radius: 0;
+  white-space: nowrap;
+}
+body.mobile-layout #sidebar .nav-label { opacity: 1 !important; font-size: 10px; }
+body.mobile-layout #sidebar .nav-icon { width: auto; }
+body.mobile-layout #main {
+  order: 1;
+  flex: 1;
+  min-height: 0;
+}
+/* Bigger touch targets in mobile mode */
+body.mobile-layout .btn { min-height: 40px; }
+body.mobile-layout .nav-item { min-height: 56px; }
+body.mobile-layout #search-input { font-size: 16px; } /* prevent zoom on iOS */
+body.mobile-layout .ventas-body { padding: 8px 10px; }
+body.mobile-layout .ventas-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
+body.mobile-layout .ventas-actions { flex-wrap: wrap; gap: 6px; }
+/* Mobile layout toggle button */
+#mobile-layout-btn {
+  position: fixed;
+  bottom: 70px;
+  right: 12px;
+  z-index: 9999;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  transition: background var(--transition), color var(--transition);
+  opacity: 0.7;
+}
+#mobile-layout-btn:hover { opacity: 1; background: var(--accent-bg); color: var(--accent); }
+body.mobile-layout #mobile-layout-btn { bottom: 64px; }
+
 #main {
   flex: 1;
   display: flex;
@@ -3174,7 +3248,7 @@ select.settings-input {
 <script type="module">
 // Firebase loaded as module, exposes to window
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 window._firebaseConfig = {
   apiKey:            "AIzaSyDF-nSLJxTC_U2lM6rOdjZpgkjnU4jdVLg",
@@ -3196,6 +3270,7 @@ window._doc         = doc;
 window._setDoc      = setDoc;
 window._deleteDoc   = deleteDoc;
 window._onSnapshot  = onSnapshot;
+window._writeBatch  = () => writeBatch(_db);
 window._firebaseReady = true;
 window.dispatchEvent(new Event('firebase-ready'));
 </script>
@@ -5318,19 +5393,45 @@ function _parsePdfProducts(text) {
   return products;
 }
 
+// ── Batch write helper (max 500 per Firestore batch) ──
+async function _batchWriteProducts(products) {
+  if (!window._db || !window._writeBatch) return;
+  const BATCH_SIZE = 499;
+  for (let i = 0; i < products.length; i += BATCH_SIZE) {
+    const chunk = products.slice(i, i + BATCH_SIZE);
+    const batch = window._writeBatch();
+    chunk.forEach(p => {
+      const ref = window._doc(window._db, 'products', String(p.id));
+      batch.set(ref, { ...p, _synced: true, _updatedAt: new Date().toISOString() });
+    });
+    await batch.commit();
+    // Small progress toast every batch
+    const done = Math.min(i + BATCH_SIZE, products.length);
+    _setSyncStatus('syncing');
+    showToast(`📦 Subiendo productos… ${done}/${products.length}`, 'success');
+  }
+  _setSyncStatus('online');
+}
+
 function importPdfProducts() {
   if (!_pdfParsedProducts.length) return;
   const count = _pdfParsedProducts.length;
   _pdfParsedProducts.forEach((p, i) => {
     p.id = state.productIdCounter + i;
     state.products.push(p);
-    dbSaveProduct(p);
   });
   state.productIdCounter += count;
   closeModal('modal-pdf-upload');
   refreshAllDynamicFilters();
   renderProducts();
-  showToast(`${count} producto(s) importados correctamente`, 'success');
+  showToast(`${count} producto(s) importados — sincronizando con Firestore…`, 'success');
+  // Async batch upload — doesn't block UI
+  _batchWriteProducts(_pdfParsedProducts.slice()).catch(err => {
+    console.error('[Import] Batch error:', err);
+    showToast('Error al subir a Firestore — reintentando…', 'warn');
+    // Fallback: queue individually
+    _pdfParsedProducts.forEach(p => dbSaveProduct(p));
+  });
   _pdfParsedProducts = [];
   _excelRows = [];
 }
@@ -5367,19 +5468,33 @@ function pickNumberFont(btn) {
   });
 }
 
+// ── Batch delete helper ──
+async function _batchDelete(colName, ids) {
+  if (!window._db || !ids.length) return;
+  const BATCH_SIZE = 499;
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = window._writeBatch();
+    ids.slice(i, i + BATCH_SIZE).forEach(id => {
+      batch.delete(window._doc(window._db, colName, String(id)));
+    });
+    await batch.commit().catch(()=>{});
+  }
+}
+
 // ── Clear data ──
 function clearAllData() {
   requestPin('PIN para limpiar historial, ventas y préstamos', () => {
-    // Clear Firestore collections
-    if (window._db) {
-      state.historial.forEach(h => window._deleteDoc(window._doc(window._db,'historial',String(h.id))).catch(()=>{}));
-      state.prestamos.forEach(p => window._deleteDoc(window._doc(window._db,'prestamos',String(p.id))).catch(()=>{}));
-    }
+    const histIds   = state.historial.map(h => h.id);
+    const prestIds  = state.prestamos.map(p => p.id);
     state.historial  = [];
     state.prestamos  = [];
     state.caja.fondo = 0;
     state.folioCounter = 1;
-    if (window._db) window._setDoc(window._doc(window._db,'config','caja'),{fondo:0}).catch(()=>{});
+    if (window._db) {
+      _batchDelete('historial', histIds).catch(()=>{});
+      _batchDelete('prestamos', prestIds).catch(()=>{});
+      window._setDoc(window._doc(window._db,'config','caja'),{fondo:0}).catch(()=>{});
+    }
     renderCajaStats();
     renderCajaMovimientos();
     showToast('Datos limpiados correctamente', 'success');
@@ -5388,11 +5503,9 @@ function clearAllData() {
 
 function resetEverything() {
   requestPin('PIN para resetear TODA la app', () => {
-    if (window._db) {
-      state.historial.forEach(h => window._deleteDoc(window._doc(window._db,'historial',String(h.id))).catch(()=>{}));
-      state.prestamos.forEach(p => window._deleteDoc(window._doc(window._db,'prestamos',String(p.id))).catch(()=>{}));
-      state.products.forEach(p  => window._deleteDoc(window._doc(window._db,'products', String(p.id))).catch(()=>{}));
-    }
+    const histIds = state.historial.map(h => h.id);
+    const prestIds = state.prestamos.map(p => p.id);
+    const prodIds  = state.products.map(p => p.id);
     state.historial    = [];
     state.prestamos    = [];
     state.products     = [];
@@ -5400,6 +5513,11 @@ function resetEverything() {
     state.folioCounter = 1;
     state.ticket       = [];
     state.discountPct  = 0;
+    if (window._db) {
+      _batchDelete('historial', histIds).catch(()=>{});
+      _batchDelete('prestamos', prestIds).catch(()=>{});
+      _batchDelete('products',  prodIds).catch(()=>{});
+    }
     renderTicket();
     renderProducts();
     renderCajaStats();
@@ -5930,20 +6048,33 @@ async function _pushPendingQueue() {
   const pending = await _getPending();
   if (!pending.length) return;
   _setSyncStatus('syncing');
+
+  const BATCH_SIZE = 499;
   let errors = 0;
-  for (const item of pending) {
+
+  for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+    const chunk = pending.slice(i, i + BATCH_SIZE);
     try {
-      if (item.opType === 'delete') {
-        await window._deleteDoc(window._doc(window._db, item.colName, item.docId));
-      } else {
-        await window._setDoc(window._doc(window._db, item.colName, item.docId), { ...item.data, _synced:true });
-      }
-      await _deletePending(item.localId);
+      const batch = window._writeBatch();
+      const toDelete = [];
+      chunk.forEach(item => {
+        const ref = window._doc(window._db, item.colName, item.docId);
+        if (item.opType === 'delete') {
+          batch.delete(ref);
+        } else {
+          batch.set(ref, { ...item.data, _synced: true, _updatedAt: new Date().toISOString() });
+        }
+        toDelete.push(item.localId);
+      });
+      await batch.commit();
+      // Remove flushed items from IDB
+      await Promise.all(toDelete.map(id => _deletePending(id)));
     } catch (err) {
       errors++;
-      console.error('[Sync] Error flushing:', err.message);
+      console.error('[Sync] Batch flush error:', err.message);
     }
   }
+
   _setSyncStatus(errors ? 'error' : 'online');
   if (!errors) showToast(`✓ ${pending.length} cambio(s) sincronizado(s)`, 'success');
 }
@@ -6061,15 +6192,19 @@ function _fechaLabel(iso) {
   return dt.toLocaleDateString('es-MX', { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
 }
 
-// Archive current day's historial to Firestore under dias/{fecha}
+// Archive current day's historial to Firestore under historial_dias/{fecha}/entries
 async function _archiveDia(fecha) {
-  if (!window._db) return;
-  const { collection, doc, setDoc, getDocs } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
-  // Save each historial entry under historial_dias/{fecha}/entries/{id}
-  const promises = state.historial.map(h =>
-    window._setDoc(window._doc(window._db, `historial_dias/${fecha}/entries`, String(h.id)), h).catch(()=>{})
-  );
-  await Promise.all(promises);
+  if (!window._db || !state.historial.length) return;
+  const BATCH_SIZE = 499;
+  const entries = state.historial;
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = window._writeBatch();
+    entries.slice(i, i + BATCH_SIZE).forEach(h => {
+      const ref = window._doc(window._db, `historial_dias/${fecha}/entries`, String(h.id));
+      batch.set(ref, h);
+    });
+    await batch.commit().catch(()=>{});
+  }
   // Save dia summary
   await window._setDoc(window._doc(window._db, 'config', 'dia'), {
     fecha,
@@ -6082,20 +6217,16 @@ async function _archiveDia(fecha) {
 // Delete today's historial from Firestore historial collection (move to archive)
 async function _limpiarHistorialFirestore() {
   if (!window._db) return;
-  const moves = state.historial.map(h =>
-    window._deleteDoc(window._doc(window._db, 'historial', String(h.id))).catch(()=>{})
-  );
-  await Promise.all(moves);
-  // Reset fondo
+  await _batchDelete('historial', state.historial.map(h => h.id));
   await window._setDoc(window._doc(window._db, 'config', 'caja'), { fondo: 0 }).catch(()=>{});
 }
 
 // Load archived day's entries from Firestore
 async function _loadDiaHistorial(fecha) {
   if (!window._db) return [];
-  const { collection: col, getDocs: gd } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
   try {
-    const snap = await gd(col(window._db, `historial_dias/${fecha}/entries`));
+    const { getDocs, collection: col } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const snap = await getDocs(col(window._db, `historial_dias/${fecha}/entries`));
     return snap.docs.map(d => ({ ...d.data(), id: d.id }));
   } catch(e) { return []; }
 }
@@ -6105,9 +6236,9 @@ let _archivedDias = []; // [{fecha, label}]
 
 async function _loadArchivedDias() {
   if (!window._db) return;
-  const { collection: col, getDocs: gd } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
   try {
-    const snap = await gd(col(window._db, 'historial_dias'));
+    const { getDocs, collection: col } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const snap = await getDocs(col(window._db, 'historial_dias'));
     _archivedDias = snap.docs.map(d => ({ fecha: d.id, label: _fechaLabel(d.id) }))
       .sort((a,b) => b.fecha.localeCompare(a.fecha));
     _populateFechaSelector();
@@ -6171,8 +6302,8 @@ async function _realizarNuevoDia(fechaAnterior) {
 async function _checkNuevoDia() {
   if (!window._db) { setTimeout(_checkNuevoDia, 400); return; }
   try {
-    const snap = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js')
-      .then(m => m.getDoc(window._doc(window._db, 'config', 'dia')));
+    const { getDoc } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const snap = await getDoc(window._doc(window._db, 'config', 'dia'));
     const today = _todayStr();
     if (snap.exists()) {
       const data = snap.data();
@@ -6228,6 +6359,29 @@ if (window._firebaseReady) setTimeout(_startFirebase, 100);
 // ══════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
+// MOBILE LAYOUT TOGGLE
+// ══════════════════════════════════════════
+function toggleMobileLayout() {
+  const isMobile = document.body.classList.toggle('mobile-layout');
+  const btn = document.getElementById('mobile-layout-btn');
+  if (btn) btn.textContent = isMobile ? '🖥️' : '📱';
+  try { localStorage.setItem('poscis_mobile_layout', isMobile ? '1' : '0'); } catch(e) {}
+}
+
+// Auto-detect mobile on load
+(function() {
+  const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  let saved = null;
+  try { saved = localStorage.getItem('poscis_mobile_layout'); } catch(e) {}
+  const useMobile = saved !== null ? saved === '1' : isMobileDevice;
+  if (useMobile) {
+    document.body.classList.add('mobile-layout');
+    const btn = document.getElementById('mobile-layout-btn');
+    if (btn) btn.textContent = '🖥️';
+  }
+})();
+
 renderProducts();
 refreshAllDynamicFilters();
 renderStatsFiltered();
@@ -6309,6 +6463,8 @@ self.addEventListener('fetch', e => {
   window.addEventListener('online',  () => showToast('Conexión restaurada — sincronizando…', 'success'));
 })();
 </script>
+<!-- Mobile layout toggle button -->
+<button id="mobile-layout-btn" onclick="toggleMobileLayout()" title="Alternar vista móvil/escritorio">📱</button>
 
 </body>
 </html>
