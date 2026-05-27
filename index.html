@@ -5031,6 +5031,22 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 // ══════════════════════════════════════════
 // KEYBOARD SHORTCUTS
 // ══════════════════════════════════════════
+
+// Enter → confirm action for every open modal
+const _MODAL_ENTER = {
+  'modal-cobrar':       () => finalizeSale(),
+  'modal-descuento':    () => confirmDiscount(),
+  'modal-qty':          () => confirmQty(),
+  'modal-prestamo':     () => savePrestamo(),
+  'modal-pin':          null, // PIN has its own digit-by-digit handler
+  'modal-caja-action':  () => saveCajaAction(),
+  'modal-product':      () => saveProduct(),
+  'modal-precio-libre': () => confirmPrecioLibre(),
+  'modal-abono':        () => confirmAbono(),
+  'modal-change-pin':   () => saveNewPin(),
+  'modal-inv-qty':      () => invConfirmQty(),
+};
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const open = document.querySelector('.modal-overlay.open');
@@ -5040,6 +5056,19 @@ document.addEventListener('keydown', e => {
       searchInput.focus();
     }
   }
+
+  // Enter inside an open modal → trigger its confirm action
+  if (e.key === 'Enter') {
+    // Don't intercept Enter inside textarea or contenteditable
+    if (e.target.tagName === 'TEXTAREA') return;
+    const open = document.querySelector('.modal-overlay.open');
+    if (open) {
+      const action = _MODAL_ENTER[open.id];
+      if (action) { e.preventDefault(); action(); }
+      return; // don't fall through to F-key shortcuts
+    }
+  }
+
   if (state.currentView !== 'ventas') return;
   if (e.key === 'F10') { e.preventDefault(); openCobrar(); }
   if (e.key === 'F12') { e.preventDefault(); openPrestamoModal(); }
