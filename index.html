@@ -506,24 +506,24 @@ body.mobile-layout #mobile-layout-btn { bottom: 64px; }
   margin-left: auto;
 }
 
-.total-pill {
-  background: var(--surface);
-  border: 2.5px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 6px 20px;
+.total-pill { display: none; } /* legacy — replaced by total-bar */
+
+/* ── Total bar: full-width dedicated row below the header ── */
+.total-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 8px 24px;
+  background: var(--surface);
+  border-bottom: 2px solid var(--accent);
   flex-shrink: 0;
-  box-shadow: 0 2px 10px rgba(28,110,243,.15);
 }
-.total-pill strong {
-  font-size: 42px;
+.total-bar strong {
+  font-size: 64px;
   font-weight: 800;
-  color: var(--text);
+  color: var(--accent);
   font-variant-numeric: tabular-nums;
-  font-family: var(--number-font);
-  letter-spacing: -.02em;
   line-height: 1;
 }
 
@@ -2091,12 +2091,13 @@ select.settings-input {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             Scan
           </button>
-          <!-- TOTAL — siempre al extremo derecho -->
-          <div class="total-pill" id="total-pill-wrap">
-            <span id="total-pill-label" style="font-size:12px;color:var(--text-3);white-space:nowrap">Total:</span>
-            <strong id="ticket-total" style="font-weight:800;font-family:var(--number-font);letter-spacing:-.02em;line-height:1;color:var(--accent)">$0.00</strong>
-          </div>
         </div>
+      </div>
+      <!-- TOTAL BAR — fila dedicada, grande, sin competir con botones -->
+      <div class="total-bar" id="total-pill-wrap">
+        <span style="font-size:15px;color:var(--text-3);font-weight:500;letter-spacing:.04em;text-transform:uppercase">Total</span>
+        <strong id="ticket-total" style="font-family:var(--number-font);letter-spacing:-.03em;line-height:1;color:var(--accent)">$0.00</strong>
+        <span class="discount-display" id="discount-display-bar" style="display:none;font-size:13px"></span>
       </div>
       <div class="ventas-body" id="ventas-body">
         <div class="empty-ticket" id="empty-ticket">
@@ -3881,31 +3882,36 @@ function finalizeSale() {
   const folio = state.folioEnabled !== false ? `${_deviceId}-${String(state.folioCounter).padStart(4,'0')}` : '';
   if (state.folioEnabled !== false) state.folioCounter++;
 
-  const _liq = state._liquidandoPrestamo;
-  state.historial.unshift({
-    id: Date.now(), folio, type: 'sale', time: now(),
-    items: state.ticket.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
-    total, deudor: null,
-    nota: _liq ? `Liquidación — ${_liq.nombre}` : null,
-  });
-  dbSaveHistorial(state.historial[0]);
-  if (_liq) { state._liquidandoPrestamo = null; }
-
-  // Descontar stock automáticamente
-  state.ticket.forEach(item => {
-    const prod = state.products.find(p => String(p.id) === String(item.prodId) || p.code === item.code);
-    if (prod && prod.stock != null) {
-      prod.stock = Math.max(0, (prod.stock || 0) - item.qty);
-      dbSaveProduct(prod);
-    }
-  });
-  // Re-render stock view immediately (no need to wait for Firebase)
-  renderStockView();
-
+  // ── CLOSE UI FIRST — instant response ──
   closeModal('modal-cobrar');
-  showToast(`Venta ${folio} guardada — $${total.toFixed(2)}`, 'success');
+  const ticketSnapshot = state.ticket.slice(); // copy before clearTicket
+  const _liq = state._liquidandoPrestamo;
+  state._liquidandoPrestamo = null;
   clearTicket();
   searchInput.focus();
+  showToast(`Venta ${folio} — $${total.toFixed(2)}`, 'success');
+
+  // ── FIRESTORE & STOCK — async, doesn't block UI ──
+  setTimeout(() => {
+    const entry = {
+      id: Date.now(), folio, type: 'sale', time: now(),
+      items: ticketSnapshot.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+      total, deudor: null,
+      nota: _liq ? `Liquidación — ${_liq.nombre}` : null,
+    };
+    state.historial.unshift(entry);
+    dbSaveHistorial(entry);
+
+    ticketSnapshot.forEach(item => {
+      const prod = state.products.find(p => String(p.id) === String(item.prodId) || p.code === item.code);
+      if (prod && prod.stock != null) {
+        prod.stock = Math.max(0, (prod.stock || 0) - item.qty);
+        dbSaveProduct(prod);
+      }
+    });
+    renderStockView();
+    if (state.currentView === 'historial') renderHistorial();
+  }, 0);
 }
 
 // ── Direct Enter listeners on modal inputs (belt-and-suspenders) ──
@@ -4044,36 +4050,37 @@ function savePrestamo() {
   const abono  = parseFloat(document.getElementById('prestamo-abono').value) || 0;
   const total  = getTicketTotal();
   const folio  = `${_deviceId}-${String(state.folioCounter).padStart(4,'0')}`;
-
-  const existing = state.prestamos.find(d => d.nombre.toLowerCase() === nombre.toLowerCase());
-  const ticketData = { folio, date: now(), items: state.ticket.map(i=>({name:i.name,qty:i.qty,price:i.price})), total };
-
-  if (existing) {
-    existing.tickets.push(ticketData);
-    if (abono > 0) {
-      if (!existing.abonos) existing.abonos = [];
-      existing.abonos.push({ monto: abono, date: now() });
-    }
-  } else {
-    const nuevo = { id: Date.now(), nombre, tickets: [ticketData], abonos: [] };
-    if (abono > 0) nuevo.abonos.push({ monto: abono, date: now() });
-    state.prestamos.push(nuevo);
-  }
-
   state.folioCounter++;
-  state.historial.unshift({ id: Date.now(), folio, type:'prestamo', time:now(), items:ticketData.items, total, deudor:nombre });
-  dbSaveHistorial(state.historial[0]);
-  const savedDeudor = existing || state.prestamos[state.prestamos.length - 1];
-  dbSavePrestamo(savedDeudor);
+
+  // ── CLOSE UI FIRST — instant response ──
   closeModal('modal-prestamo');
   document.querySelectorAll('.modal-overlay.open').forEach(m => {
     if (m.id !== 'modal-pin') m.classList.remove('open');
   });
   showToast(`Préstamo guardado — ${nombre}`, 'success');
+  const ticketSnapshot = state.ticket.slice();
   clearTicket();
-  // Render immediately (don't wait for Firestore round-trip)
-  renderDeudores();
-  if (state.currentView === 'historial') renderHistorial();
+
+  // ── STATE & FIRESTORE — deferred, doesn't block UI ──
+  setTimeout(() => {
+    const ticketData = { folio, date: now(), items: ticketSnapshot.map(i=>({name:i.name,qty:i.qty,price:i.price})), total };
+    const existing = state.prestamos.find(d => d.nombre.toLowerCase() === nombre.toLowerCase());
+    if (existing) {
+      existing.tickets.push(ticketData);
+      if (abono > 0) { if (!existing.abonos) existing.abonos = []; existing.abonos.push({ monto: abono, date: now() }); }
+    } else {
+      const nuevo = { id: Date.now(), nombre, tickets: [ticketData], abonos: [] };
+      if (abono > 0) nuevo.abonos.push({ monto: abono, date: now() });
+      state.prestamos.push(nuevo);
+    }
+    const savedDeudor = existing || state.prestamos[state.prestamos.length - 1];
+    dbSavePrestamo(savedDeudor);
+    const entry = { id: Date.now(), folio, type:'prestamo', time:now(), items:ticketData.items, total, deudor:nombre };
+    state.historial.unshift(entry);
+    dbSaveHistorial(entry);
+    renderDeudores();
+    if (state.currentView === 'historial') renderHistorial();
+  }, 0);
 }
 
 // ══════════════════════════════════════════
@@ -4959,7 +4966,7 @@ function applyFontSizes() {
   ['ventas-header','ticket-tbody'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.fontSize = _sizeVentas + 'px';
   });
-  document.querySelector('.total-pill strong')?.style && (document.querySelector('.total-pill strong').style.fontSize = (_sizeVentas + 8) + 'px');
+  // total-bar font size is fixed at 64px — not affected by ventas size slider
 
   // Productos / listas zone
   ['.productos-table-wrap','#historial-items','.historial-list','#deudores-list',
@@ -6003,7 +6010,7 @@ function pickNumberFont(btn) {
   const font = btn.dataset.numfont;
   document.documentElement.style.setProperty('--number-font', font);
   // Apply to all number elements immediately
-  document.querySelectorAll('.total-pill strong, .cobrar-amount, .kpi-value, .caja-stat-value, .cierre-hero-cash-value, .cierre-card-value').forEach(el => {
+  document.querySelectorAll('.total-bar strong, .cobrar-amount, .kpi-value, .caja-stat-value, .cierre-hero-cash-value, .cierre-card-value').forEach(el => {
     el.style.fontFamily = font;
   });
 }
