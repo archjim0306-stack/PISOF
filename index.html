@@ -507,14 +507,24 @@ body.mobile-layout #mobile-layout-btn { bottom: 64px; }
 }
 
 .total-pill {
-  background: var(--surface2);
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 2px solid var(--accent);
   border-radius: var(--radius);
-  padding: 8px 18px;
+  padding: 6px 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 165px;
+  gap: 6px;
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  z-index: 800;
+  box-shadow: 0 2px 12px rgba(28,110,243,.18);
+  pointer-events: none;
+}
+/* In mobile layout, total pill moves above the bottom nav */
+body.mobile-layout .total-pill {
+  top: 8px;
+  right: 10px;
 }
 .total-pill strong {
   font-size: 36px;
@@ -563,6 +573,12 @@ body.mobile-layout #mobile-layout-btn { bottom: 64px; }
   align-items: center;
   gap: 10px;
   transition: background var(--transition);
+}
+.autocomplete-item.dd-focus,
+.autocomplete-item:focus {
+  background: var(--accent-bg);
+  color: var(--accent);
+  outline: none;
 }
 /* Ticket / items list */
 .ventas-body {
@@ -3660,6 +3676,7 @@ searchInput.addEventListener('input', () => {
   });
 
   dropdown.classList.add('open');
+  _ddFocusIdx = -1; // reset arrow selection on fresh results
 });
 
 function highlight(text, q) {
@@ -3672,22 +3689,64 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.search-wrap')) dropdown.classList.remove('open');
 });
 
+let _ddFocusIdx = -1; // arrow-key selected index in dropdown
+
+function _ddItems() { return dropdown.querySelectorAll('.autocomplete-item'); }
+
+function _ddHighlight(idx) {
+  const items = _ddItems();
+  items.forEach(el => el.classList.remove('dd-focus'));
+  if (idx >= 0 && idx < items.length) {
+    items[idx].classList.add('dd-focus');
+    items[idx].scrollIntoView({ block: 'nearest' });
+  }
+  _ddFocusIdx = idx;
+}
+
 searchInput.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { dropdown.classList.remove('open'); searchInput.value = ''; return; }
+  const isOpen = dropdown.classList.contains('open');
+
+  if (e.key === 'Escape') {
+    dropdown.classList.remove('open');
+    searchInput.value = '';
+    _ddFocusIdx = -1;
+    return;
+  }
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!isOpen) return;
+    const items = _ddItems();
+    _ddHighlight(Math.min(_ddFocusIdx + 1, items.length - 1));
+    return;
+  }
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!isOpen) return;
+    _ddHighlight(Math.max(_ddFocusIdx - 1, 0));
+    return;
+  }
+
   if (e.key === 'Enter') {
+    e.preventDefault();
+    // If an item is highlighted via arrow keys, select it
+    if (isOpen && _ddFocusIdx >= 0) {
+      const items = _ddItems();
+      if (items[_ddFocusIdx]) { items[_ddFocusIdx].click(); _ddFocusIdx = -1; return; }
+    }
     const raw = searchInput.value.trim();
     if (!raw) return;
-    // Try exact code first
     const exact = state.products.find(p => p.code === raw);
-    if (exact) { addToTicket(exact); searchInput.value = ''; dropdown.classList.remove('open'); return; }
-    // Try first autocomplete match
+    if (exact) { addToTicket(exact); searchInput.value = ''; dropdown.classList.remove('open'); _ddFocusIdx = -1; return; }
     const first = state.products.find(p =>
       p.name.toLowerCase().includes(raw.toLowerCase()) || p.code.includes(raw)
     );
-    if (first) { addToTicket(first); searchInput.value = ''; dropdown.classList.remove('open'); }
+    if (first) { addToTicket(first); searchInput.value = ''; dropdown.classList.remove('open'); _ddFocusIdx = -1; }
     else { beepError(); }
   }
 });
+
 
 // ══════════════════════════════════════════
 // TICKET
@@ -3815,15 +3874,27 @@ function calcChange() {
 // Double-Enter on cobrar input finalizes sale
 let _cobrarEnterTs = 0;
 document.getElementById('cobrar-recibido').addEventListener('keydown', e => {
+  // Backspace clears the whole field
+  if (e.key === 'Backspace') {
+    const inp = document.getElementById('cobrar-recibido');
+    if (inp.value.length > 0) { e.preventDefault(); inp.value = ''; calcChange(); }
+    return;
+  }
   if (e.key !== 'Enter') return;
-  const now_ = Date.now();
+  e.preventDefault();
   const received = parseFloat(document.getElementById('cobrar-recibido').value) || 0;
-  if (received < getTicketTotal()) { showToast('El monto es insuficiente', 'warn'); return; }
-  if (now_ - _cobrarEnterTs < 600) {
-    finalizeSale(); // double Enter
+  // If amount entered, show change first then finalize on second Enter
+  if (received > 0 && received >= getTicketTotal()) {
+    const now_ = Date.now();
+    if (now_ - _cobrarEnterTs < 700) {
+      finalizeSale();
+    } else {
+      calcChange();
+      _cobrarEnterTs = now_;
+    }
   } else {
-    calcChange();   // first Enter = calculate change
-    _cobrarEnterTs = now_;
+    // No amount or insufficient — just finalize (monto no obligatorio)
+    finalizeSale();
   }
 });
 
