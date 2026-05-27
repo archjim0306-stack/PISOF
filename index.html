@@ -508,26 +508,17 @@ body.mobile-layout #mobile-layout-btn { bottom: 64px; }
 
 .total-pill {
   background: var(--surface);
-  border: 2px solid var(--accent);
+  border: 2.5px solid var(--accent);
   border-radius: var(--radius);
-  padding: 6px 14px;
+  padding: 6px 20px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  position: fixed;
-  top: 10px;
-  right: 14px;
-  z-index: 800;
-  box-shadow: 0 2px 12px rgba(28,110,243,.18);
-  pointer-events: none;
-}
-/* In mobile layout, total pill moves above the bottom nav */
-body.mobile-layout .total-pill {
-  top: 8px;
-  right: 10px;
+  gap: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(28,110,243,.15);
 }
 .total-pill strong {
-  font-size: 36px;
+  font-size: 42px;
   font-weight: 800;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -2087,11 +2078,6 @@ select.settings-input {
           <div class="autocomplete-dropdown" id="autocomplete-dropdown"></div>
         </div>
         <div class="ventas-actions">
-          <!-- TOTAL — grande y prominente -->
-          <div class="total-pill" id="total-pill-wrap">
-            <span id="total-pill-label" style="font-size:12px;color:var(--text-3)">Total:</span>
-            <strong id="ticket-total" style="font-size:34px;font-weight:800;font-family:var(--number-font);letter-spacing:-.01em;line-height:1;color:var(--text)">$0.00</strong>
-          </div>
           <span class="discount-display" id="discount-display">🏷 Desc. aplicado</span>
           <button class="btn btn-ghost btn-sm" onclick="applyDiscount()">% Descuento</button>
           <button class="btn btn-ghost btn-sm" onclick="openPrestamoModal()">F12 Préstamo</button>
@@ -2105,6 +2091,11 @@ select.settings-input {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             Scan
           </button>
+          <!-- TOTAL — siempre al extremo derecho -->
+          <div class="total-pill" id="total-pill-wrap">
+            <span id="total-pill-label" style="font-size:12px;color:var(--text-3);white-space:nowrap">Total:</span>
+            <strong id="ticket-total" style="font-weight:800;font-family:var(--number-font);letter-spacing:-.02em;line-height:1;color:var(--accent)">$0.00</strong>
+          </div>
         </div>
       </div>
       <div class="ventas-body" id="ventas-body">
@@ -3874,7 +3865,6 @@ function calcChange() {
 // Double-Enter on cobrar input finalizes sale
 let _cobrarEnterTs = 0;
 document.getElementById('cobrar-recibido').addEventListener('keydown', e => {
-  // Backspace clears the whole field
   if (e.key === 'Backspace') {
     const inp = document.getElementById('cobrar-recibido');
     if (inp.value.length > 0) { e.preventDefault(); inp.value = ''; calcChange(); }
@@ -3882,20 +3872,8 @@ document.getElementById('cobrar-recibido').addEventListener('keydown', e => {
   }
   if (e.key !== 'Enter') return;
   e.preventDefault();
-  const received = parseFloat(document.getElementById('cobrar-recibido').value) || 0;
-  // If amount entered, show change first then finalize on second Enter
-  if (received > 0 && received >= getTicketTotal()) {
-    const now_ = Date.now();
-    if (now_ - _cobrarEnterTs < 700) {
-      finalizeSale();
-    } else {
-      calcChange();
-      _cobrarEnterTs = now_;
-    }
-  } else {
-    // No amount or insufficient — just finalize (monto no obligatorio)
-    finalizeSale();
-  }
+  e.stopPropagation(); // prevent global handler from double-firing
+  finalizeSale();
 });
 
 function finalizeSale() {
@@ -3929,6 +3907,37 @@ function finalizeSale() {
   clearTicket();
   searchInput.focus();
 }
+
+// ── Direct Enter listeners on modal inputs (belt-and-suspenders) ──
+// These fire before the global handler and are more reliable
+['prestamo-nombre','prestamo-abono'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const modal = document.querySelector('.modal-overlay.open');
+    if (modal && modal.id === 'modal-prestamo') {
+      e.preventDefault();
+      e.stopPropagation();
+      savePrestamo();
+    }
+  });
+});
+
+const _abonoMontoEl = document.getElementById('abono-monto');
+if (_abonoMontoEl) _abonoMontoEl.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  e.stopPropagation();
+  confirmAbono();
+});
+
+const _descPctEl = document.getElementById('desc-pct');
+if (_descPctEl) _descPctEl.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  e.stopPropagation();
+  confirmDiscount();
+});
 
 // ══════════════════════════════════════════
 // DESCUENTO
