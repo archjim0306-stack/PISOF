@@ -214,6 +214,20 @@ body.mobile-layout #main {
   order: 1;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+}
+/* All scrollable views need bottom padding to clear the 56px tab bar */
+body.mobile-layout .view {
+  padding-bottom: 64px;
+}
+/* Ajustes inner wrapper: avoid min-height:min-content in Safari mobile (breaks scroll) */
+body.mobile-layout #view-ajustes > div {
+  min-height: unset;
+  padding-bottom: 80px;
+}
+/* Mobile layout btn sits above the tab bar */
+body.mobile-layout #mobile-layout-btn {
+  bottom: 68px;
 }
 /* Bigger touch targets in mobile mode */
 body.mobile-layout .btn { min-height: 40px; }
@@ -450,6 +464,26 @@ body.mobile-layout #mobile-layout-btn { bottom: 64px; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(28,110,243,.1);
   background: #fff;
+}
+/* Error flash animation for search bar */
+@keyframes searchErrorFlash {
+  0%   { border-color: var(--red); box-shadow: 0 0 0 4px rgba(220,38,38,.25); background: rgba(220,38,38,.06); }
+  20%  { border-color: var(--red); box-shadow: 0 0 0 8px rgba(220,38,38,.18); background: rgba(220,38,38,.10); }
+  50%  { border-color: var(--red); box-shadow: 0 0 0 4px rgba(220,38,38,.22); background: rgba(220,38,38,.07); }
+  80%  { border-color: var(--red); box-shadow: 0 0 0 8px rgba(220,38,38,.14); background: rgba(220,38,38,.05); }
+  100% { border-color: var(--border); box-shadow: none; background: var(--surface2); }
+}
+@keyframes searchErrorShake {
+  0%,100% { transform: translateX(0); }
+  15%      { transform: translateX(-8px); }
+  30%      { transform: translateX(8px); }
+  45%      { transform: translateX(-6px); }
+  60%      { transform: translateX(6px); }
+  75%      { transform: translateX(-3px); }
+  90%      { transform: translateX(3px); }
+}
+#search-input.error-flash {
+  animation: searchErrorFlash .9s ease-out forwards, searchErrorShake .45s ease-out;
 }
 .autocomplete-item {
   padding: 10px 14px;
@@ -1000,7 +1034,8 @@ body.mobile-layout #mobile-layout-btn { bottom: 64px; }
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: min-content;
+  /* min-height: min-content causes scroll to break in Safari — use flex-shrink:0 instead */
+  flex-shrink: 0;
 }
 
 .settings-section {
@@ -2102,6 +2137,8 @@ select.settings-input {
             <button class="filter-chip" style="font-size:11px;padding:3px 9px" onclick="setHistorialFilter(this,'sale')">Ventas</button>
             <button class="filter-chip" style="font-size:11px;padding:3px 9px" onclick="setHistorialFilter(this,'retiro')">Retiros</button>
             <button class="filter-chip" style="font-size:11px;padding:3px 9px" onclick="setHistorialFilter(this,'prestamo')">Préstamos</button>
+            <button class="filter-chip" style="font-size:11px;padding:3px 9px" onclick="setHistorialFilter(this,'stock')">Stock</button>
+            <button class="filter-chip" style="font-size:11px;padding:3px 9px" onclick="setHistorialFilter(this,'abono')">Abonos</button>
           </div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
             <span style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Proveedor:</span>
@@ -2245,6 +2282,8 @@ select.settings-input {
           </div>
           <span class="count-badge" id="prod-count">0 productos</span>
           <button class="btn btn-ghost btn-sm" onclick="openModal('modal-pdf-upload')" title="Importar productos desde PDF o Excel">📥 Importar</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportProductsExcel()" title="Descargar catálogo como Excel">⬇️ Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportProductsPDF()" title="Descargar catálogo como PDF">⬇️ PDF</button>
           <button class="btn btn-primary btn-sm" onclick="openProductModal(null)">+ Nuevo producto</button>
         </div>
         <div class="productos-header-row2" id="depto-chips-row">
@@ -2519,6 +2558,30 @@ select.settings-input {
     <section id="view-ajustes" class="view">
       <div class="view-watermark"></div>
       <div style="padding:20px;display:flex;flex-direction:column;gap:16px;min-height:min-content">
+
+      <!-- Dispositivo -->
+      <div class="settings-section">
+        <div class="settings-section-title">Este dispositivo</div>
+        <div class="settings-row">
+          <div class="settings-row-label">
+            <strong>Letra de dispositivo</strong>
+            <span>Prefijo de folios (A, B, C…). Cada dispositivo debe tener una letra distinta.</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" class="settings-input" id="setting-device-id" maxlength="2"
+              style="width:60px;text-align:center;text-transform:uppercase;font-weight:700;font-size:18px"
+              value="" oninput="this.value=this.value.toUpperCase()">
+            <button class="btn btn-primary btn-sm" onclick="saveDeviceId()">Guardar</button>
+          </div>
+        </div>
+        <div class="settings-row" style="align-items:center">
+          <div class="settings-row-label">
+            <strong>Folio actual</strong>
+            <span>Número de folio en este dispositivo</span>
+          </div>
+          <span id="setting-folio-current" style="font-family:monospace;font-weight:600;font-size:15px"></span>
+        </div>
+      </div>
 
       <!-- Negocio -->
       <div class="settings-section">
@@ -2919,25 +2982,72 @@ select.settings-input {
 
       <!-- Sonidos -->
       <div class="settings-section">
-        <div class="settings-section-title">Sonidos</div>
+        <div class="settings-section-title">Sonidos y alertas</div>
+
+        <!-- OK sound -->
         <div class="settings-row" style="flex-wrap:wrap;gap:12px">
           <div class="settings-row-label" style="min-width:160px">
-            <strong>Sonido al agregar producto</strong>
-            <span>Elige el que prefieras</span>
+            <strong>✅ Sonido — producto agregado</strong>
+            <span>Se escucha al agregar un producto al ticket</span>
           </div>
           <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:8px">
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px">
-              <button class="font-pick active" data-sound="pipit"    onclick="pickSound(this)">Pi-pit (default)</button>
-              <button class="font-pick" data-sound="beep"           onclick="pickSound(this)">Beep corto</button>
-              <button class="font-pick" data-sound="double"         onclick="pickSound(this)">Doble beep</button>
-              <button class="font-pick" data-sound="cash"           onclick="pickSound(this)">Caja registradora</button>
-              <button class="font-pick" data-sound="soft"           onclick="pickSound(this)">Suave (low)</button>
-              <button class="font-pick" data-sound="chirp"          onclick="pickSound(this)">Chirp alto</button>
-              <button class="font-pick" data-sound="triple"         onclick="pickSound(this)">Triple pip</button>
-              <button class="font-pick" data-sound="none"           onclick="pickSound(this)">Sin sonido</button>
+              <button class="font-pick active" data-sound="pipit"  onclick="pickSound(this)">Pi-pit (default)</button>
+              <button class="font-pick" data-sound="beep"          onclick="pickSound(this)">Beep corto</button>
+              <button class="font-pick" data-sound="double"        onclick="pickSound(this)">Doble beep</button>
+              <button class="font-pick" data-sound="cash"          onclick="pickSound(this)">Caja registradora</button>
+              <button class="font-pick" data-sound="soft"          onclick="pickSound(this)">Suave</button>
+              <button class="font-pick" data-sound="chirp"         onclick="pickSound(this)">Chirp alto</button>
+              <button class="font-pick" data-sound="triple"        onclick="pickSound(this)">Triple pip</button>
+              <button class="font-pick" data-sound="none"          onclick="pickSound(this)">Sin sonido</button>
             </div>
-            <button class="btn btn-ghost btn-sm" style="width:fit-content" onclick="testCurrentSound()">▶ Probar sonido</button>
+            <button class="btn btn-ghost btn-sm" style="width:fit-content" onclick="testCurrentSound()">▶ Probar</button>
           </div>
+        </div>
+
+        <div style="height:1px;background:var(--border);margin:4px 0"></div>
+
+        <!-- Error sound -->
+        <div class="settings-row" style="flex-wrap:wrap;gap:12px">
+          <div class="settings-row-label" style="min-width:160px">
+            <strong>❌ Sonido — código no encontrado</strong>
+            <span>Se escucha cuando el buscador no encuentra el producto</span>
+          </div>
+          <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px">
+              <button class="font-pick active" data-error-sound="alarm"  onclick="pickErrorSound(this)">🔴 Alarma (default)</button>
+              <button class="font-pick" data-error-sound="siren"         onclick="pickErrorSound(this)">🚨 Sirena</button>
+              <button class="font-pick" data-error-sound="buzz"          onclick="pickErrorSound(this)">📳 Zumbido</button>
+              <button class="font-pick" data-error-sound="robot"         onclick="pickErrorSound(this)">🤖 Robot error</button>
+              <button class="font-pick" data-error-sound="blip3"         onclick="pickErrorSound(this)">⚡ Triple blip</button>
+              <button class="font-pick" data-error-sound="loud"          onclick="pickErrorSound(this)">📢 Tono grave</button>
+              <button class="font-pick" data-error-sound="none"          onclick="pickErrorSound(this)">Sin sonido</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="width:fit-content" onclick="testErrorSound()">▶ Probar error</button>
+          </div>
+        </div>
+
+        <div style="height:1px;background:var(--border);margin:4px 0"></div>
+
+        <!-- Visual error flash -->
+        <div class="settings-row" style="flex-wrap:wrap;gap:12px">
+          <div class="settings-row-label" style="min-width:160px">
+            <strong>👁 Alerta visual — error en buscador</strong>
+            <span>Animación en la barra de búsqueda cuando no encuentra el código</span>
+          </div>
+          <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px">
+              <button class="font-pick active" data-flash="shake" onclick="pickErrorFlash(this)">↔️ Sacudida</button>
+              <button class="font-pick" data-flash="flash"        onclick="pickErrorFlash(this)">🔴 Flash rojo</button>
+              <button class="font-pick" data-flash="both"         onclick="pickErrorFlash(this)">💥 Sacudida + flash</button>
+              <button class="font-pick" data-flash="none"         onclick="pickErrorFlash(this)">Sin animación</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save button -->
+        <div class="settings-row" style="justify-content:flex-end;padding-top:4px">
+          <button class="btn btn-primary btn-sm" onclick="saveSoundSettings()">✓ Guardar configuración de sonidos</button>
         </div>
       </div>
 
@@ -3421,6 +3531,13 @@ window.dispatchEvent(new Event('firebase-ready'));
 <script>
 
 
+// ── Device identity ── (each device gets its own letter + folio counter)
+const _deviceId = (() => {
+  let id = null;
+  try { id = localStorage.getItem('poscis_device_id'); } catch(e) {}
+  return id || 'A'; // default A; user assigns via Ajustes
+})();
+
 let state = {
   pin: '123456',
   businessName: 'Mi Negocio',
@@ -3484,6 +3601,7 @@ function navigateTo(view) {
   if (view === 'ventas')     refocusSearch();
   if (view === 'stock')      renderStockView();
   if (view === 'inventario') setTimeout(()=>document.getElementById('inv-scan-input')?.focus(),80);
+  if (view === 'ajustes')    _populateDeviceSettings();
 }
 
 // Sidebar toggle
@@ -3653,11 +3771,12 @@ function selectTicketRow(idx) {
 }
 
 function clearTicket() {
+  state._liquidandoPrestamo = null;
   state.ticket = [];
   state.discountPct = 0;
   state._selectedTicketRow = null;
   state.folioCounter++;
-  document.getElementById('current-folio').textContent = `Folio: #${String(state.folioCounter).padStart(4,'0')}`;
+  document.getElementById('current-folio').textContent = `Folio: ${_deviceId}-${String(state.folioCounter).padStart(4,'0')}`;
   renderTicket();
 }
 
@@ -3710,15 +3829,18 @@ document.getElementById('cobrar-recibido').addEventListener('keydown', e => {
 
 function finalizeSale() {
   const total = getTicketTotal();
-  const folio = state.folioEnabled !== false ? `#${String(state.folioCounter).padStart(4,'0')}` : '';
+  const folio = state.folioEnabled !== false ? `${_deviceId}-${String(state.folioCounter).padStart(4,'0')}` : '';
   if (state.folioEnabled !== false) state.folioCounter++;
 
+  const _liq = state._liquidandoPrestamo;
   state.historial.unshift({
     id: Date.now(), folio, type: 'sale', time: now(),
     items: state.ticket.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
-    total, deudor: null
+    total, deudor: null,
+    nota: _liq ? `Liquidación — ${_liq.nombre}` : null,
   });
   dbSaveHistorial(state.historial[0]);
+  if (_liq) { state._liquidandoPrestamo = null; }
 
   // Descontar stock automáticamente
   state.ticket.forEach(item => {
@@ -3841,7 +3963,7 @@ function savePrestamo() {
   if (!nombre) { showToast('Ingresa un nombre', 'error'); return; }
   const abono  = parseFloat(document.getElementById('prestamo-abono').value) || 0;
   const total  = getTicketTotal();
-  const folio  = `#${String(state.folioCounter).padStart(4,'0')}`;
+  const folio  = `${_deviceId}-${String(state.folioCounter).padStart(4,'0')}`;
 
   const existing = state.prestamos.find(d => d.nombre.toLowerCase() === nombre.toLowerCase());
   const ticketData = { folio, date: now(), items: state.ticket.map(i=>({name:i.name,qty:i.qty,price:i.price})), total };
@@ -3864,8 +3986,14 @@ function savePrestamo() {
   const savedDeudor = existing || state.prestamos[state.prestamos.length - 1];
   dbSavePrestamo(savedDeudor);
   closeModal('modal-prestamo');
+  document.querySelectorAll('.modal-overlay.open').forEach(m => {
+    if (m.id !== 'modal-pin') m.classList.remove('open');
+  });
   showToast(`Préstamo guardado — ${nombre}`, 'success');
   clearTicket();
+  // Render immediately (don't wait for Firestore round-trip)
+  renderDeudores();
+  if (state.currentView === 'historial') renderHistorial();
 }
 
 // ══════════════════════════════════════════
@@ -3910,7 +4038,7 @@ function renderHistorial() {
   });
 
   const container = document.getElementById('historial-items');
-  const icons = { sale:'🧾', retiro:'💸', deposito:'💵', prestamo:'🤝' };
+  const icons = { sale:'🧾', retiro:'💸', deposito:'💵', prestamo:'🤝', stock:'📦', abono:'💳' };
 
   container.innerHTML = items.length ? items.map(h => `
     <div class="historial-entry ${String(state.selectedHistorialId) === String(h.id) ? 'selected':''}"
@@ -3918,11 +4046,11 @@ function renderHistorial() {
       <div class="he-icon ${h.type}">${icons[h.type]||'📄'}</div>
       <div class="he-info">
         <div class="he-folio">${h.folio}</div>
-        <div class="he-type">${h.type === 'sale' ? 'Venta' : h.type === 'retiro' ? 'Retiro' : h.type === 'deposito' ? 'Depósito' : `Préstamo — ${h.deudor||''}`}</div>
+        <div class="he-type">${h.type === 'sale' ? (h.nota ? h.nota : 'Venta') : h.type === 'retiro' ? 'Retiro' : h.type === 'deposito' ? 'Depósito' : h.type === 'stock' ? `Entrada stock — ${h.razon||''}` : h.type === 'abono' ? `Abono — ${h.deudor||''}` : `Préstamo — ${h.deudor||''}`}</div>
         <div class="he-time">${h.time}</div>
       </div>
       <div class="he-amount ${h.type==='retiro'?'neg':'pos'}">
-        ${h.type==='retiro'?'-':''}$${Math.abs(h.total||0).toFixed(2)}
+        ${h.type==='stock' ? `+${h.total||0} uds` : (h.type==='retiro'?'-':'')+'$'+Math.abs(h.total||h.monto||0).toFixed(2)}
       </div>
     </div>
   `).join('') : '<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px">Sin registros con ese filtro</div>';
@@ -3942,6 +4070,25 @@ function showHistorialPreview(id) {
   if (!entry) return;
 
   const body = document.getElementById('historial-preview-body');
+
+  // Stock entries
+  if (entry.type === 'stock') {
+    const rows = (entry.items || []).map(i =>
+      `<div class="tp-item"><span class="tp-item-name">${i.name}${i.code ? ' <small style="color:var(--text-3)">['+i.code+']</small>' : ''}</span><span class="tp-item-price" style="color:var(--green)">+${i.qty} uds</span></div>`
+    ).join('');
+    body.innerHTML = `
+      <div class="ticket-preview">
+        <div class="tp-header">
+          <div class="tp-business">${state.businessName}</div>
+          <div class="tp-folio">${entry.folio||''} · ${entry.time||''}</div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--text-3);margin:4px 0">📦 Entrada de stock</div>
+        <div class="tp-items">${rows || '<div class="tp-item"><span>'+entry.razon+'</span></div>'}</div>
+        <hr class="tp-divider">
+        <div class="tp-total"><span>TOTAL</span><span>+${entry.total||0} uds</span></div>
+      </div>`;
+    return;
+  }
 
   // Non-sale entries (retiro, deposito)
   if (!entry.items && entry.monto != null) {
@@ -4432,9 +4579,23 @@ function saveProduct() {
       p.chgUm     = document.getElementById('p-chg-um').checked;
       const sv = document.getElementById('p-stock').value;
       const sm = document.getElementById('p-stock-min').value;
+      const oldStock = p.stock || 0;
       if (sv !== '') p.stock    = parseInt(sv) || 0;
       if (sm !== '') p.stockMin = parseInt(sm) || 0;
       dbSaveProduct(p);
+      // Registrar ajuste manual de stock en historial
+      if (sv !== '' && p.stock !== oldStock) {
+        const diff = p.stock - oldStock;
+        const entry = {
+          id: Date.now(), folio: 'AJUSTE-' + String(Date.now()).slice(-6),
+          type: 'stock', time: now(),
+          total: diff,
+          razon: `Ajuste manual — ${p.name} (${diff > 0 ? '+' : ''}${diff})`,
+          items: [{ name: p.name, code: p.code || '', qty: diff, prodId: p.id }],
+        };
+        state.historial.unshift(entry);
+        dbSaveHistorial(entry);
+      }
     }
   } else {
     const newProd = {
@@ -4533,7 +4694,21 @@ function confirmAbono() {
   d.abonos.push({ monto, date: now() });
   dbSavePrestamo(d);
   const saldo = calcDeudorTotal(d);
-  // If fully paid, remove from prestamos
+
+  // Registrar abono en historial
+  const abonoEntry = {
+    id: Date.now(),
+    folio: 'ABONO-' + String(Date.now()).slice(-6),
+    type: 'abono',
+    time: now(),
+    monto,
+    total: monto,
+    deudor: d.nombre,
+    razon: saldo <= 0 ? `Saldo completo — ${d.nombre}` : `Abono — ${d.nombre} (saldo: $${saldo.toFixed(2)})`,
+  };
+  state.historial.unshift(abonoEntry);
+  dbSaveHistorial(abonoEntry);
+
   if (saldo <= 0) {
     dbDeletePrestamo(d.id);
     state.prestamos = state.prestamos.filter(x => String(x.id) !== String(state.selectedDeudorId));
@@ -4546,6 +4721,7 @@ function confirmAbono() {
   }
   closeModal('modal-abono');
   renderDeudores();
+  if (state.currentView === 'historial') renderHistorial();
 }
 
 function liquidarPrestamo() {
@@ -4554,28 +4730,42 @@ function liquidarPrestamo() {
   if (!d) { showToast('Deudor no encontrado', 'error'); return; }
 
   const saldo = calcDeudorTotal(d);
-  const folio = state.folioEnabled !== false ? `#${String(state.folioCounter).padStart(4,'0')}` : `LIQ-${Date.now()}`;
-  if (state.folioEnabled !== false) state.folioCounter++;
+  if (saldo <= 0) { showToast('Este préstamo ya está saldado', 'warn'); return; }
 
+  // Agrupar todos los artículos pendientes por nombre+precio → un item por producto
   const allItems = (d.tickets || []).flatMap(t => t.items || []);
+  const grouped = {};
+  allItems.forEach(i => {
+    const key = `${i.name}||${i.price}`;
+    if (grouped[key]) { grouped[key].qty += i.qty; }
+    else { grouped[key] = { name: i.name, price: i.price || 0, qty: i.qty, um: i.um || 'PZA', code: i.code || '' }; }
+  });
+  const items = Object.values(grouped);
 
-  const entry = {
-    id: Date.now(), folio,
-    type: 'sale', time: now(),
-    items: allItems.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
-    total: saldo, deudor: null,
-    nota: `Liquidación — ${d.nombre}`
-  };
-  state.historial.unshift(entry);
-  dbSaveHistorial(entry);
+  // Limpiar ticket actual y cargar los artículos del préstamo
+  state.ticket = items.map(i => ({
+    code: i.code,
+    name: i.name,
+    um:   i.um,
+    price: i.price,
+    qty:  i.qty,
+    prodId: null,        // puede no existir en catálogo
+    _fromPrestamo: d.nombre,
+  }));
+
+  // Guardar referencia para que cobrar sepa que es liquidación
+  state._liquidandoPrestamo = { id: d.id, nombre: d.nombre, saldo };
+
+  // Borrar el préstamo (se re-crea si el cobro falla o se cancela)
   dbDeletePrestamo(d.id);
   state.prestamos = state.prestamos.filter(x => String(x.id) !== String(state.selectedDeudorId));
   state.selectedDeudorId = null;
   document.getElementById('btn-abono').disabled    = true;
   document.getElementById('btn-liquidar').disabled = true;
   renderDeudores();
-  showToast(`Préstamo de ${d.nombre} liquidado — $${saldo.toFixed(2)}`, 'success');
-  navigateTo('historial');
+  renderTicket();
+  navigateTo('ventas');
+  showToast(`Artículos de ${d.nombre} cargados al ticket — $${saldo.toFixed(2)}`, 'success');
 }
 
 // ══════════════════════════════════════════
@@ -5407,7 +5597,10 @@ function buildExcelPreview() {
 }
 
 
-let _currentSound = 'pipit';
+// ── Sound & alert settings ──────────────────
+let _currentSound     = 'pipit';
+let _currentErrorSound = 'alarm';   // error sound variant
+let _errorFlashMode   = 'shake';    // 'shake' | 'flash' | 'both' | 'none'
 
 const SOUNDS = {
   pipit:  () => { [[0,.028,1200,.28],[.08,.028,1600,.22]].forEach(([d,,f,v])=>_tone(f,v,d,.10)); },
@@ -5418,6 +5611,35 @@ const SOUNDS = {
   chirp:  () => { _tone(1800,.20,0,.06); _tone(2200,.15,.07,.05); },
   triple: () => { [0,.1,.2].forEach(d=>_tone(1400,.18,d,.07)); },
   none:   () => {},
+};
+
+// Error sound variants — more dramatic
+const ERROR_SOUNDS = {
+  alarm:   () => {
+    // Alarma descendente — fuerte y clara
+    [0,.08,.16,.24,.32,.40].forEach((d,i)=>_toneWave('sawtooth', 400-i*40, .35, d, .10));
+  },
+  buzz:    () => {
+    // Zumbido grave triple
+    [0,.18,.36].forEach(d=>_toneWave('square', 120, .40, d, .15));
+  },
+  siren:   () => {
+    // Sirena corta
+    const t=_audioCtx.currentTime, o=_audioCtx.createOscillator(), g=_audioCtx.createGain();
+    o.connect(g); g.connect(_audioCtx.destination);
+    o.type='sawtooth';
+    o.frequency.setValueAtTime(600,t); o.frequency.linearRampToValueAtTime(200,t+.3);
+    o.frequency.linearRampToValueAtTime(600,t+.6); o.frequency.linearRampToValueAtTime(200,t+.9);
+    g.gain.setValueAtTime(.40,t); g.gain.exponentialRampToValueAtTime(.001,t+.92);
+    o.start(t); o.stop(t+.93);
+  },
+  blip3:   () => { [0,.12,.24].forEach(d=>_toneWave('square',200,.35,d,.09)); },
+  robot:   () => {
+    // Robot error descendente
+    [880,660,440,330].forEach((f,i)=>_toneWave('square',f,.30,i*.07,.06));
+  },
+  loud:    () => _toneWave('sawtooth',180,.55,0,.55),
+  none:    () => {},
 };
 
 function _tone(freq, vol, delay, dur) {
@@ -5431,9 +5653,37 @@ function _tone(freq, vol, delay, dur) {
     osc.stop(_audioCtx.currentTime+delay+dur+.01);
   } catch(e){}
 }
+function _toneWave(type, freq, vol, delay, dur) {
+  try {
+    const t=_audioCtx.currentTime+delay;
+    const osc=_audioCtx.createOscillator(), g=_audioCtx.createGain();
+    osc.connect(g); g.connect(_audioCtx.destination);
+    osc.type=type; osc.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+dur);
+    osc.start(t); osc.stop(t+dur+.01);
+  } catch(e){}
+}
 
-function beepOk()    { (SOUNDS[_currentSound] || SOUNDS.pipit)(); }
-function beepError() { [[0,.10,.35],[.13,.10,.35]].forEach(([d,v])=>{ const o=_audioCtx.createOscillator(),g=_audioCtx.createGain();o.connect(g);g.connect(_audioCtx.destination);o.type='sawtooth';o.frequency.setValueAtTime(200,_audioCtx.currentTime+d);o.frequency.exponentialRampToValueAtTime(100,_audioCtx.currentTime+d+.12);g.gain.setValueAtTime(v,_audioCtx.currentTime+d);g.gain.exponentialRampToValueAtTime(.001,_audioCtx.currentTime+d+.14);o.start(_audioCtx.currentTime+d);o.stop(_audioCtx.currentTime+d+.15);}); }
+function beepOk() { (SOUNDS[_currentSound]||SOUNDS.pipit)(); }
+
+function beepError() {
+  // Play error sound
+  (ERROR_SOUNDS[_currentErrorSound]||ERROR_SOUNDS.alarm)();
+  // Haptic
+  try { navigator.vibrate && navigator.vibrate([80,40,80,40,120]); } catch(e){}
+  // Visual flash on search bar
+  _flashSearchError();
+}
+
+function _flashSearchError() {
+  if (_errorFlashMode === 'none') return;
+  const inp = document.getElementById('search-input');
+  if (!inp) return;
+  inp.classList.remove('error-flash');
+  void inp.offsetWidth; // reflow
+  inp.classList.add('error-flash');
+  inp.addEventListener('animationend', () => inp.classList.remove('error-flash'), { once: true });
+}
 
 function pickSound(btn) {
   document.querySelectorAll('[data-sound]').forEach(b=>b.classList.remove('active'));
@@ -5441,7 +5691,45 @@ function pickSound(btn) {
   _currentSound = btn.dataset.sound;
   (SOUNDS[_currentSound]||SOUNDS.pipit)();
 }
+function pickErrorSound(btn) {
+  document.querySelectorAll('[data-error-sound]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  _currentErrorSound = btn.dataset.errorSound;
+  beepError();
+}
+function pickErrorFlash(btn) {
+  document.querySelectorAll('[data-flash]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  _errorFlashMode = btn.dataset.flash;
+  if (_errorFlashMode !== 'none') _flashSearchError();
+}
 function testCurrentSound() { (SOUNDS[_currentSound]||SOUNDS.pipit)(); }
+function testErrorSound()    { beepError(); }
+
+// Save sound settings to Firestore (config/sounds)
+function saveSoundSettings() {
+  const data = {
+    okSound:    _currentSound,
+    errorSound: _currentErrorSound,
+    flashMode:  _errorFlashMode,
+  };
+  if (window._db) {
+    window._setDoc(window._doc(window._db,'config','sounds'), data)
+      .then(()=>showToast('✅ Configuración de sonidos guardada', 'success'))
+      .catch(()=>showToast('Guardado local — sin conexión','warn'));
+  } else {
+    try { localStorage.setItem('poscis_sounds', JSON.stringify(data)); } catch(e){}
+    showToast('✅ Configuración guardada', 'success');
+  }
+}
+
+// Load sound settings from Firestore
+function _loadSoundSettings(data) {
+  if (!data) return;
+  if (data.okSound)    { _currentSound      = data.okSound;    document.querySelectorAll('[data-sound]').forEach(b=>b.classList.toggle('active', b.dataset.sound===data.okSound)); }
+  if (data.errorSound) { _currentErrorSound = data.errorSound; document.querySelectorAll('[data-error-sound]').forEach(b=>b.classList.toggle('active', b.dataset.errorSound===data.errorSound)); }
+  if (data.flashMode)  { _errorFlashMode    = data.flashMode;  document.querySelectorAll('[data-flash]').forEach(b=>b.classList.toggle('active', b.dataset.flash===data.flashMode)); }
+}
 
 // ── Printer connection toggle ─────────────
 function updatePrinterConn(val) {
@@ -5727,17 +6015,35 @@ function saveStockFromTicket() {
     return;
   }
   let updated = 0;
+  const totalUnits = state.ticket.reduce((s, i) => s + i.qty, 0);
+  const names = state.ticket.map(i => `${i.name} x${i.qty}`).join(', ');
+
   state.ticket.forEach(item => {
     const prod = state.products.find(p => String(p.id) === String(item.prodId) || p.code === item.code);
     if (prod) {
       prod.stock = (prod.stock || 0) + item.qty;
-      dbSaveProduct(prod); // async to Firebase, but state is already updated
+      dbSaveProduct(prod);
       updated++;
     }
   });
+
+  // Registrar en historial
+  const folio = 'STOCK-' + String(Date.now()).slice(-6);
+  const entry = {
+    id: Date.now(), folio,
+    type: 'stock',
+    time: now(),
+    total: totalUnits,
+    razon: names,
+    items: state.ticket.map(i => ({ ...i })),
+  };
+  state.historial.unshift(entry);
+  dbSaveHistorial(entry);
+
   showToast(`Stock actualizado — ${updated} producto(s) sumados`, 'success');
   toggleStockMode();
-  renderStockView(); // render immediately from in-memory state (no need to wait for Firebase)
+  renderStockView();
+  if (state.currentView === 'historial') renderHistorial();
   navigateTo('stock');
 }
 
@@ -6245,7 +6551,7 @@ function _initListeners() {
         if (idx >= 0) state.historial[idx] = d; else state.historial.unshift(d);
       }
     });
-    state.historial.sort((a, b) => (b._updatedAt||'') > (a._updatedAt||'') ? 1 : -1);
+    state.historial.sort((a, b) => Number(b.id) - Number(a.id));
     if (state.currentView === 'historial') renderHistorial();
     if (state.currentView === 'stats')     renderStatsFiltered();
     if (state.currentView === 'cierre')    renderCierre();
@@ -6284,6 +6590,11 @@ function _initListeners() {
       const sb = document.getElementById('setting-business');
       if (sb) sb.value = state.businessName;
     }
+  });
+
+  // Sound settings
+  window._onSnapshot(window._doc(window._db, 'config', 'sounds'), snap => {
+    if (snap.exists()) _loadSoundSettings(snap.data());
   });
 }
 
@@ -6342,7 +6653,7 @@ async function _archiveDia(fecha) {
     await batch.commit().catch(()=>{});
   }
   // Save dia summary
-  await window._setDoc(window._doc(window._db, 'config', 'dia'), {
+  await window._setDoc(window._doc(window._db, 'config', 'dia_' + _deviceId), {
     fecha,
     folioCounter: state.folioCounter,
     ventas: calcVentas(),
@@ -6420,7 +6731,7 @@ async function _realizarNuevoDia(fechaAnterior) {
   state.caja.fondo = 0;
   state._corteDone = false;
   // 4. Update config/dia with today
-  await window._setDoc(window._doc(window._db, 'config', 'dia'), {
+  await window._setDoc(window._doc(window._db, 'config', 'dia_' + _deviceId), {
     fecha: _todayStr(),
     folioCounter: state.folioCounter
   }).catch(()=>{});
@@ -6439,7 +6750,7 @@ async function _checkNuevoDia() {
   if (!window._db) { setTimeout(_checkNuevoDia, 400); return; }
   try {
     const { getDoc } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
-    const snap = await getDoc(window._doc(window._db, 'config', 'dia'));
+    const snap = await getDoc(window._doc(window._db, 'config', 'dia_' + _deviceId));
     const today = _todayStr();
     if (snap.exists()) {
       const data = snap.data();
@@ -6448,7 +6759,7 @@ async function _checkNuevoDia() {
       if (data.folioCounter && data.folioCounter > state.folioCounter) {
         state.folioCounter = data.folioCounter;
         document.getElementById('current-folio').textContent =
-          `Folio: #${String(state.folioCounter).padStart(4,'0')}`;
+          `Folio: ${_deviceId}-${String(state.folioCounter).padStart(4,'0')}`;
       }
       if (savedDate && savedDate !== today) {
         // Day changed — archive previous day and reset
@@ -6456,7 +6767,7 @@ async function _checkNuevoDia() {
       }
     } else {
       // First ever run — save today
-      await window._setDoc(window._doc(window._db, 'config', 'dia'), {
+      await window._setDoc(window._doc(window._db, 'config', 'dia_' + _deviceId), {
         fecha: today,
         folioCounter: state.folioCounter
       }).catch(()=>{});
@@ -6472,7 +6783,7 @@ function dbSaveHistorial(entry) {
   _origDbSaveHistorial(entry);
   // Also update folioCounter in config/dia
   if (window._db) {
-    window._setDoc(window._doc(window._db, 'config', 'dia'), {
+    window._setDoc(window._doc(window._db, 'config', 'dia_' + _deviceId), {
       fecha: _todayStr(),
       folioCounter: state.folioCounter
     }).catch(()=>{});
@@ -6496,6 +6807,116 @@ if (window._firebaseReady) setTimeout(_startFirebase, 100);
 // INIT
 // ══════════════════════════════════════════
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
+// DEVICE ID MANAGEMENT
+// ══════════════════════════════════════════
+function saveDeviceId() {
+  const val = (document.getElementById('setting-device-id')?.value || '').toUpperCase().trim();
+  if (!val) { showToast('Ingresa una letra (A, B, C…)', 'error'); return; }
+  try { localStorage.setItem('poscis_device_id', val); } catch(e) {}
+  showToast(`Dispositivo guardado como "${val}" — recarga la app para aplicar`, 'success');
+}
+
+function _populateDeviceSettings() {
+  const inp = document.getElementById('setting-device-id');
+  if (inp) inp.value = _deviceId;
+  const folioEl = document.getElementById('setting-folio-current');
+  if (folioEl) folioEl.textContent = `${_deviceId}-${String(state.folioCounter).padStart(4,'0')}`;
+}
+
+// ══════════════════════════════════════════
+// EXPORTAR CATÁLOGO DE PRODUCTOS
+// ══════════════════════════════════════════
+
+function _ensureXLSX(cb) {
+  if (typeof XLSX !== 'undefined') { cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload = cb;
+  s.onerror = () => showToast('No se pudo cargar SheetJS', 'error');
+  document.head.appendChild(s);
+}
+
+function exportProductsExcel() {
+  if (!state.products.length) { showToast('No hay productos para exportar', 'warn'); return; }
+  _ensureXLSX(() => {
+    const cols = ['Código','Nombre','Precio','Costo','Departamento','Proveedor','UM','Stock','Stock Mínimo'];
+    const rows = state.products.map(p => [
+      p.code || '',
+      p.name  || '',
+      p.price != null ? p.price : '',
+      p.cost  != null ? p.cost  : '',
+      p.depto    || '',
+      p.proveedor|| '',
+      p.um       || '',
+      p.stock    != null ? p.stock    : '',
+      p.stockMin != null ? p.stockMin : '',
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([cols, ...rows]);
+    // Column widths
+    ws['!cols'] = [10,35,10,10,18,18,8,8,10].map(w => ({ wch: w }));
+    // Header style (xlsx doesn't support styles in free tier, but set freeze)
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    const wb = XLSX.utils.book_new();
+    const sheetName = (state.businessName || 'Catalogo').slice(0,31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const fecha = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `catalogo-${fecha}.xlsx`);
+    showToast(`✅ ${state.products.length} productos exportados`, 'success');
+  });
+}
+
+function exportProductsPDF() {
+  if (!state.products.length) { showToast('No hay productos para exportar', 'warn'); return; }
+  const fecha   = new Date().toLocaleString('es-MX');
+  const negocio = state.businessName || 'Mi Negocio';
+  const rows = state.products.map((p, i) => `
+    <tr style="background:${i%2===0?'#fff':'#f7f7f9'}">
+      <td>${i+1}</td>
+      <td style="font-family:monospace;font-size:11px">${p.code||'—'}</td>
+      <td style="font-weight:600;max-width:200px">${p.name}</td>
+      <td style="text-align:right">$${(p.price||0).toFixed(2)}</td>
+      <td style="text-align:right;color:#666">$${(p.cost||0).toFixed(2)}</td>
+      <td>${p.depto||'—'}</td>
+      <td>${p.proveedor||'—'}</td>
+      <td>${p.um||'—'}</td>
+      <td style="text-align:center;font-weight:700">${p.stock!=null?p.stock:'—'}</td>
+      <td style="text-align:center;color:#888">${p.stockMin!=null?p.stockMin:'—'}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head>
+    <meta charset="UTF-8"><title>Catálogo — ${negocio}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:24px}
+      h1{font-size:20px;margin-bottom:2px}
+      .sub{color:#666;font-size:11px;margin-bottom:20px}
+      table{width:100%;border-collapse:collapse}
+      th{background:#1c6ef3;color:#fff;padding:7px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;text-align:left;white-space:nowrap}
+      td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:middle}
+      tfoot td{font-weight:700;background:#e8f0fe;border-top:2px solid #1c6ef3}
+      @media print{button{display:none!important}@page{margin:15mm}}
+    </style>
+  </head><body>
+    <h1>📦 Catálogo de Productos — ${negocio}</h1>
+    <div class="sub">Generado: ${fecha} &nbsp;·&nbsp; ${state.products.length} productos</div>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Código</th><th>Nombre</th><th>Precio</th><th>Costo</th>
+        <th>Depto</th><th>Proveedor</th><th>UM</th><th>Stock</th><th>Mín</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="10">${state.products.length} productos en total</td></tr></tfoot>
+    </table>
+    <script>window.onload=()=>window.print()<\/script>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Permite ventanas emergentes para imprimir', 'warn'); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
 // MOBILE NAV DRAWER
 // ══════════════════════════════════════════
 function toggleMobileDrawer() {
@@ -6530,15 +6951,36 @@ document.addEventListener('click', (e) => {
 });
 
 // ══════════════════════════════════════════
-// BARCODE SCANNER — nativo BarcodeDetector + fallback getUserMedia+canvas
+// ══════════════════════════════════════════
+// BARCODE SCANNER
+// Estrategia:
+//   1. Si hay HTTPS o localhost → getUserMedia + BarcodeDetector nativo (tiempo real)
+//   2. Si es HTTP (archivo local) → file input con capture + BarcodeDetector sobre imagen
+//   3. Si BarcodeDetector no existe → avisa al usuario que use un scanner físico
 // ══════════════════════════════════════════
 let _barcodeStream  = null;
 let _barcodeContext = null;
 let _barcodeActive  = false;
 let _barcodeRAF     = null;
 
+function _isSecureContext() {
+  return location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+
 async function openBarcodeScanner(context) {
   _barcodeContext = context || 'ventas';
+
+  if (_isSecureContext()) {
+    // HTTPS: abrir overlay con cámara en vivo
+    _openLiveScanner();
+  } else {
+    // HTTP: usar file input con capture (funciona en iOS Safari sin HTTPS)
+    _openFileCapture();
+  }
+}
+
+// ── Modo 1: cámara en vivo (HTTPS) ──────────────────
+async function _openLiveScanner() {
   const overlay = document.getElementById('barcode-overlay');
   const video   = document.getElementById('barcode-video');
   const msg     = document.getElementById('barcode-msg');
@@ -6548,7 +6990,6 @@ async function openBarcodeScanner(context) {
   msg.textContent = 'Cargando cámara…';
 
   try {
-    // Request camera — back-facing preferred
     _barcodeStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
@@ -6557,80 +6998,80 @@ async function openBarcodeScanner(context) {
     await video.play();
     msg.textContent = 'Apunta al código de barras';
 
-    // — Strategy 1: native BarcodeDetector (iOS 17+, Android Chrome)
     if ('BarcodeDetector' in window) {
-      const formats = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code','data_matrix','itf','codabar'];
-      let supported = formats;
-      try { supported = await BarcodeDetector.getSupportedFormats(); } catch(e) {}
-      const detector = new BarcodeDetector({ formats: supported });
-      const _tick = async () => {
+      let fmts = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code','data_matrix','itf','codabar'];
+      try { fmts = await BarcodeDetector.getSupportedFormats(); } catch(e) {}
+      const detector = new BarcodeDetector({ formats: fmts });
+      const tick = async () => {
         if (!_barcodeActive) return;
         try {
-          const results = await detector.detect(video);
-          if (results.length) { _onBarcodeDetected(results[0].rawValue); return; }
+          const res = await detector.detect(video);
+          if (res.length) { _onBarcodeDetected(res[0].rawValue); return; }
         } catch(e) {}
-        _barcodeRAF = requestAnimationFrame(_tick);
+        _barcodeRAF = requestAnimationFrame(tick);
       };
-      _barcodeRAF = requestAnimationFrame(_tick);
-
-    // — Strategy 2: canvas snapshot every 200ms decoded via jscanify-free approach
-    // We use the QuaggaJS CDN as fallback (no WASM, pure JS, works on HTTP too)
+      _barcodeRAF = requestAnimationFrame(tick);
     } else {
-      msg.textContent = 'Cargando decoder…';
-      await _loadQuagga();
-      msg.textContent = 'Apunta al código de barras';
-      _startQuagga(video);
+      msg.textContent = '⚠️ BarcodeDetector no disponible en este navegador';
     }
-
   } catch(e) {
-    const errMsg = e && e.message ? e.message : String(e);
-    msg.textContent = '⚠️ ' + (errMsg.includes('Permission') ? 'Permiso de cámara denegado' : errMsg);
+    msg.textContent = '⚠️ ' + (e.name === 'NotAllowedError' ? 'Permiso de cámara denegado' : (e.message || e));
     console.error('[Scanner]', e);
-    showToast('Error de cámara — verifica permisos', 'error');
   }
 }
 
-function _loadQuagga() {
-  if (window.Quagga) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js';
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
+// ── Modo 2: foto con file input (HTTP / sin permisos de stream) ──
+function _openFileCapture() {
+  if (!('BarcodeDetector' in window)) {
+    // Último recurso: campo de texto manual
+    showToast('Escáner no disponible — escribe el código manualmente', 'warn');
+    const target = _barcodeContext === 'ventas'
+      ? document.getElementById('search-input')
+      : document.getElementById('inv-scan-input');
+    if (target) setTimeout(() => target.focus(), 100);
+    return;
+  }
 
-function _startQuagga(video) {
-  if (!window.Quagga || !_barcodeActive) return;
-  const canvas = document.createElement('canvas');
-  const ctx    = canvas.getContext('2d');
+  const input = document.createElement('input');
+  input.type    = 'file';
+  input.accept  = 'image/*';
+  input.capture = 'environment'; // abre cámara trasera en iOS/Android
+  input.style.display = 'none';
+  document.body.appendChild(input);
 
-  const scan = () => {
-    if (!_barcodeActive) return;
-    if (video.readyState < 2) { setTimeout(scan, 200); return; }
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    Quagga.decodeSingle({
-      decoder: { readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader','upc_e_reader'] },
-      locate: true,
-      src: canvas.toDataURL('image/png')
-    }, result => {
-      if (!_barcodeActive) return;
-      if (result && result.codeResult) {
-        _onBarcodeDetected(result.codeResult.code);
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if (!file) return;
+
+    showToast('Detectando código…', 'success');
+
+    try {
+      const bitmap = await createImageBitmap(file);
+      let fmts = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code','data_matrix','itf','codabar'];
+      try { fmts = await BarcodeDetector.getSupportedFormats(); } catch(e) {}
+      const detector = new BarcodeDetector({ formats: fmts });
+      const results  = await detector.detect(bitmap);
+
+      if (results.length) {
+        _onBarcodeDetected(results[0].rawValue);
       } else {
-        setTimeout(scan, 250);
+        showToast('No se detectó ningún código — intenta de nuevo', 'warn');
       }
-    });
+    } catch(e) {
+      console.error('[Scanner foto]', e);
+      showToast('Error al leer la imagen', 'error');
+    }
   };
-  setTimeout(scan, 500);
+
+  // Si el usuario cancela sin elegir archivo
+  input.addEventListener('cancel', () => input.remove());
+  input.click();
 }
 
 function _onBarcodeDetected(code) {
-  if (!code || !_barcodeActive) return;
+  if (!code || !_barcodeActive && _barcodeContext) return;
+  _barcodeActive = false;
   closeBarcodeScanner();
 
   if (_barcodeContext === 'ventas') {
@@ -6640,11 +7081,16 @@ function _onBarcodeDetected(code) {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       setTimeout(() => {
         const first = document.querySelector('.autocomplete-item');
-        if (first) first.click();
+        if (first) { first.click(); }
         else {
           const match = state.products.find(p => p.code === code);
-          if (match) addToTicket(match);
-          else showToast('Código no encontrado: ' + code, 'warn');
+          if (match) { addToTicket(match); input.value = ''; }
+          else {
+            // Deja el código visible para que el usuario lo vea/copie
+            beepError();
+            showToast('Código no encontrado: ' + code, 'warn');
+            input.focus();
+          }
         }
       }, 250);
     }
@@ -6659,12 +7105,14 @@ function _onBarcodeDetected(code) {
 
   try { navigator.vibrate && navigator.vibrate(60); } catch(e) {}
   showToast('✅ ' + code, 'success');
+  _barcodeContext = null;
 }
 
 function closeBarcodeScanner() {
   _barcodeActive = false;
   if (_barcodeRAF) { cancelAnimationFrame(_barcodeRAF); _barcodeRAF = null; }
-  document.getElementById('barcode-overlay').classList.remove('open');
+  const overlay = document.getElementById('barcode-overlay');
+  if (overlay) overlay.classList.remove('open');
   const video = document.getElementById('barcode-video');
   if (video) { video.pause(); video.srcObject = null; }
   if (_barcodeStream) { _barcodeStream.getTracks().forEach(t => t.stop()); _barcodeStream = null; }
