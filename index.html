@@ -1276,8 +1276,8 @@ select.settings-input {
   position: fixed; inset: 0;
   background: rgba(0,0,0,.35);
   display: none;
-  align-items: center;
-  justify-content: center;
+  align-items: var(--modal-align-v, center);
+  justify-content: var(--modal-justify, center);
   z-index: 500;
   backdrop-filter: blur(2px);
   animation: fadeIn .15s ease;
@@ -1319,7 +1319,11 @@ select.settings-input {
 }
 .modal-close:hover { background: var(--surface2); color: var(--text); }
 
-.modal-body { padding: 20px; }
+.modal-body { padding: 20px; font-size: var(--modal-font-size, 14px); }
+.modal-title { font-size: calc(var(--modal-font-size, 14px) + 2px) !important; }
+.modal .form-label { font-size: var(--modal-font-size, 14px); }
+.modal .form-control { font-size: var(--modal-font-size, 14px); }
+.modal .btn { font-size: var(--modal-font-size, 14px); }
 .modal-footer {
   padding: 14px 20px;
   border-top: 1px solid var(--border);
@@ -2844,6 +2848,38 @@ select.settings-input {
 
       <!-- Ticket -->
       <div class="settings-section">
+        <div class="settings-section-title">Ventanas emergentes (modales)</div>
+        <div class="settings-row" style="flex-wrap:wrap;gap:12px">
+          <div class="settings-row-label">
+            <strong>Tamaño de letra</strong>
+            <span>Texto dentro de todas las ventanas emergentes</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="range" id="modal-font-size-slider" min="11" max="22" value="14" step="1"
+              style="width:120px;accent-color:var(--accent)" oninput="updateModalFontSize(this.value)">
+            <span id="modal-font-size-label" style="font-family:var(--mono);font-size:13px;min-width:32px">14px</span>
+          </div>
+        </div>
+        <div class="settings-row" style="flex-wrap:wrap;gap:12px">
+          <div class="settings-row-label">
+            <strong>Posición</strong>
+            <span>Dónde aparecen las ventanas en la pantalla</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="font-pick active" data-modal-pos="center" onclick="setModalPos(this,'center')">⬜ Centro</button>
+            <button class="font-pick" data-modal-pos="left"   onclick="setModalPos(this,'left')">◧ Izquierda</button>
+            <button class="font-pick" data-modal-pos="right"  onclick="setModalPos(this,'right')">◨ Derecha</button>
+            <button class="font-pick" data-modal-pos="top"    onclick="setModalPos(this,'top')">⬆ Arriba</button>
+            <button class="font-pick" data-modal-pos="bottom" onclick="setModalPos(this,'bottom')">⬇ Abajo</button>
+          </div>
+        </div>
+        <div class="settings-row" style="justify-content:flex-end">
+          <button class="btn btn-primary btn-sm" onclick="saveModalSettings()">✓ Guardar ajustes de ventanas</button>
+        </div>
+      </div>
+
+      <!-- Diseño del ticket -->
+      <div class="settings-section">
         <div class="settings-section-title">Diseño del ticket</div>
 
         <!-- Logo upload -->
@@ -3911,7 +3947,37 @@ function finalizeSale() {
     });
     renderStockView();
     if (state.currentView === 'historial') renderHistorial();
+    // Print if F11 was used
+    if (state._printAfterSale) {
+      state._printAfterSale = false;
+      setTimeout(() => {
+        const lastEntry = state.historial[0];
+        if (lastEntry) _printTicketWindow(lastEntry);
+      }, 150);
+    }
   }, 0);
+}
+
+function _printTicketWindow(entry) {
+  const html = buildTicketHTML(entry);
+  const win = window.open('', '_blank', 'width=360,height=600');
+  if (!win) { showToast('Activa ventanas emergentes para imprimir', 'warn'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Ticket</title>
+    <style>body{margin:12px;font-family:'Courier New',monospace}@media print{button{display:none!important}}</style>
+    </head><body>${html}
+    <br><button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#1c6ef3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 Imprimir</button>
+    <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script>
+    </body></html>`);
+  win.document.close();
+}
+
+// ── F11: Cobrar + imprimir ticket ──
+function openCobrarConImpresion() {
+  if (!state.ticket.length) { showToast('El ticket está vacío', 'warn'); return; }
+  // Flag so finalizeSale knows to print
+  state._printAfterSale = true;
+  openCobrar();
 }
 
 // ── Direct Enter listeners on modal inputs (belt-and-suspenders) ──
@@ -4777,38 +4843,36 @@ function confirmAbono() {
   if (!monto || monto <= 0) { showToast('Ingresa un monto válido', 'error'); return; }
   const d = state.prestamos.find(x => String(x.id) === String(state.selectedDeudorId));
   if (!d) { showToast('Deudor no encontrado', 'error'); return; }
-  if (!d.abonos) d.abonos = [];
-  d.abonos.push({ monto, date: now() });
-  dbSavePrestamo(d);
-  const saldo = calcDeudorTotal(d);
 
-  // Registrar abono en historial
-  const abonoEntry = {
-    id: Date.now(),
-    folio: 'ABONO-' + String(Date.now()).slice(-6),
-    type: 'abono',
-    time: now(),
-    monto,
-    total: monto,
-    deudor: d.nombre,
-    razon: saldo <= 0 ? `Saldo completo — ${d.nombre}` : `Abono — ${d.nombre} (saldo: $${saldo.toFixed(2)})`,
-  };
-  state.historial.unshift(abonoEntry);
-  dbSaveHistorial(abonoEntry);
-
-  if (saldo <= 0) {
-    dbDeletePrestamo(d.id);
-    state.prestamos = state.prestamos.filter(x => String(x.id) !== String(state.selectedDeudorId));
-    state.selectedDeudorId = null;
-    document.getElementById('btn-abono').disabled    = true;
-    document.getElementById('btn-liquidar').disabled = true;
-    showToast(`Préstamo saldado: $${monto.toFixed(2)}`, 'success');
-  } else {
-    showToast(`Abono: $${monto.toFixed(2)} — Saldo restante: $${saldo.toFixed(2)}`, 'success');
-  }
+  // ── CLOSE FIRST ──
   closeModal('modal-abono');
-  renderDeudores();
-  if (state.currentView === 'historial') renderHistorial();
+
+  // ── PROCESS ASYNC ──
+  setTimeout(() => {
+    if (!d.abonos) d.abonos = [];
+    d.abonos.push({ monto, date: now() });
+    dbSavePrestamo(d);
+    const saldo = calcDeudorTotal(d);
+    const abonoEntry = {
+      id: Date.now(), folio: 'ABONO-' + String(Date.now()).slice(-6),
+      type: 'abono', time: now(), monto, total: monto, deudor: d.nombre,
+      razon: saldo <= 0 ? `Saldo completo — ${d.nombre}` : `Abono — ${d.nombre} (saldo: $${saldo.toFixed(2)})`,
+    };
+    state.historial.unshift(abonoEntry);
+    dbSaveHistorial(abonoEntry);
+    if (saldo <= 0) {
+      dbDeletePrestamo(d.id);
+      state.prestamos = state.prestamos.filter(x => String(x.id) !== String(state.selectedDeudorId));
+      state.selectedDeudorId = null;
+      document.getElementById('btn-abono').disabled    = true;
+      document.getElementById('btn-liquidar').disabled = true;
+      showToast(`Préstamo saldado: $${monto.toFixed(2)}`, 'success');
+    } else {
+      showToast(`Abono: $${monto.toFixed(2)} — Saldo restante: $${saldo.toFixed(2)}`, 'success');
+    }
+    renderDeudores();
+    if (state.currentView === 'historial') renderHistorial();
+  }, 0);
 }
 
 function liquidarPrestamo() {
@@ -4819,7 +4883,7 @@ function liquidarPrestamo() {
   const saldo = calcDeudorTotal(d);
   if (saldo <= 0) { showToast('Este préstamo ya está saldado', 'warn'); return; }
 
-  // Agrupar todos los artículos pendientes por nombre+precio → un item por producto
+  // Agrupar todos los artículos pendientes por nombre+precio
   const allItems = (d.tickets || []).flatMap(t => t.items || []);
   const grouped = {};
   allItems.forEach(i => {
@@ -4828,17 +4892,22 @@ function liquidarPrestamo() {
     else { grouped[key] = { name: i.name, price: i.price || 0, qty: i.qty, um: i.um || 'PZA', code: i.code || '' }; }
   });
   const items = Object.values(grouped);
+  const totalBruto = items.reduce((s, i) => s + i.price * i.qty, 0);
+  const totalAbonos = d.abonos ? d.abonos.reduce((s, a) => s + a.monto, 0) : 0;
 
-  // Limpiar ticket actual y cargar los artículos del préstamo
+  // Cargar artículos al ticket
   state.ticket = items.map(i => ({
-    code: i.code,
-    name: i.name,
-    um:   i.um,
-    price: i.price,
-    qty:  i.qty,
-    prodId: null,        // puede no existir en catálogo
-    _fromPrestamo: d.nombre,
+    code: i.code, name: i.name, um: i.um, price: i.price, qty: i.qty,
+    prodId: null, _fromPrestamo: d.nombre,
   }));
+
+  // Si hay abonos previos, agregar línea de descuento negativa
+  if (totalAbonos > 0) {
+    state.ticket.push({
+      code: '', name: `Abonos previos — ${d.nombre}`, um: '',
+      price: -totalAbonos, qty: 1, prodId: null, _fromPrestamo: d.nombre,
+    });
+  }
 
   // Guardar referencia para que cobrar sepa que es liquidación
   state._liquidandoPrestamo = { id: d.id, nombre: d.nombre, saldo };
@@ -5158,6 +5227,7 @@ document.addEventListener('keydown', e => {
 
   if (state.currentView !== 'ventas') return;
   if (e.key === 'F10') { e.preventDefault(); openCobrar(); }
+  if (e.key === 'F11') { e.preventDefault(); openCobrarConImpresion(); }
   if (e.key === 'F12') { e.preventDefault(); openPrestamoModal(); }
   if (e.key === 'F4')  { e.preventDefault(); openQtyModal(state._selectedTicketRow); }
 });
@@ -6712,6 +6782,10 @@ function _initListeners() {
   window._onSnapshot(window._doc(window._db, 'config', 'sounds'), snap => {
     if (snap.exists()) _loadSoundSettings(snap.data());
   });
+  // Modal settings
+  window._onSnapshot(window._doc(window._db, 'config', 'modal_settings'), snap => {
+    if (snap.exists()) _loadModalSettings(snap.data());
+  });
 }
 
 // ── Public save helpers used throughout app ──
@@ -7032,6 +7106,74 @@ function exportProductsPDF() {
   win.document.write(html);
   win.document.close();
 }
+
+// ══════════════════════════════════════════
+// MODAL FONT SIZE & POSITION
+// ══════════════════════════════════════════
+let _modalFontSize = 14;
+let _modalPos = 'center';
+
+const _MODAL_POS_MAP = {
+  center: { justify: 'center',     alignV: 'center'     },
+  left:   { justify: 'flex-start', alignV: 'center'     },
+  right:  { justify: 'flex-end',   alignV: 'center'     },
+  top:    { justify: 'center',     alignV: 'flex-start' },
+  bottom: { justify: 'center',     alignV: 'flex-end'   },
+};
+
+function updateModalFontSize(val) {
+  _modalFontSize = parseInt(val);
+  document.documentElement.style.setProperty('--modal-font-size', _modalFontSize + 'px');
+  const lbl = document.getElementById('modal-font-size-label');
+  if (lbl) lbl.textContent = _modalFontSize + 'px';
+}
+
+function setModalPos(btn, pos) {
+  document.querySelectorAll('[data-modal-pos]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _modalPos = pos;
+  const map = _MODAL_POS_MAP[pos] || _MODAL_POS_MAP.center;
+  document.documentElement.style.setProperty('--modal-justify',   map.justify);
+  document.documentElement.style.setProperty('--modal-align-v',   map.alignV);
+}
+
+function saveModalSettings() {
+  const data = { modalFontSize: _modalFontSize, modalPos: _modalPos };
+  try { localStorage.setItem('poscis_modal_settings', JSON.stringify(data)); } catch(e) {}
+  if (window._db) {
+    window._setDoc(window._doc(window._db, 'config', 'modal_settings'), data)
+      .then(() => showToast('✅ Ajustes de ventanas guardados', 'success'))
+      .catch(() => showToast('✅ Guardado localmente', 'success'));
+  } else {
+    showToast('✅ Ajustes de ventanas guardados', 'success');
+  }
+}
+
+function _loadModalSettings(data) {
+  if (!data) return;
+  if (data.modalFontSize) {
+    _modalFontSize = data.modalFontSize;
+    updateModalFontSize(_modalFontSize);
+    const sl = document.getElementById('modal-font-size-slider');
+    if (sl) sl.value = _modalFontSize;
+  }
+  if (data.modalPos) {
+    _modalPos = data.modalPos;
+    const map = _MODAL_POS_MAP[_modalPos] || _MODAL_POS_MAP.center;
+    document.documentElement.style.setProperty('--modal-justify', map.justify);
+    document.documentElement.style.setProperty('--modal-align-v', map.alignV);
+    document.querySelectorAll('[data-modal-pos]').forEach(b =>
+      b.classList.toggle('active', b.dataset.modalPos === _modalPos));
+  }
+}
+
+// Load from localStorage on startup
+(function() {
+  try {
+    const saved = localStorage.getItem('poscis_modal_settings');
+    if (saved) _loadModalSettings(JSON.parse(saved));
+  } catch(e) {}
+})();
 
 // MOBILE NAV DRAWER
 // ══════════════════════════════════════════
