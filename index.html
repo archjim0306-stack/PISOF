@@ -6162,9 +6162,12 @@ async function _usbOpenDevice() {
     await _usbDevice.selectConfiguration(1);
 
   // Find printer interface & bulk-OUT endpoint
+  // EasyTime SP-POS891UE4: EP3=out/bulk, EP1=in/bulk
+  _usbInterface   = null;
+  _usbEndpointOut = null;
+
   for (const iface of _usbDevice.configuration.interfaces) {
     for (const alt of iface.alternates) {
-      // USB Printer class = 7, or just grab first interface with a bulk-OUT
       for (const ep of alt.endpoints) {
         if (ep.direction === 'out' && (ep.type === 'bulk' || ep.type === 'interrupt')) {
           _usbInterface   = iface.interfaceNumber;
@@ -6177,9 +6180,15 @@ async function _usbOpenDevice() {
     if (_usbEndpointOut !== null) break;
   }
 
-  if (_usbEndpointOut === null) throw new Error('No se encontró endpoint de impresión');
+  // Fallback: force EP3 for EasyTime SP-POS891UE4 if auto-detect failed
+  if (_usbEndpointOut === null) {
+    console.warn('[Piscis] Auto-detect falló, usando EP3 forzado para EasyTime');
+    _usbInterface   = 0;
+    _usbEndpointOut = 3;
+  }
 
   try { await _usbDevice.claimInterface(_usbInterface); } catch(e) { /* already claimed */ }
+  console.log('[Piscis] USB listo — interface:', _usbInterface, 'endpoint out:', _usbEndpointOut);
 }
 
 async function _usbEnsureOpen() {
@@ -7165,6 +7174,7 @@ function dbDeleteProduct(id) {
 }
 function dbSaveHistorial(entry) {
   _syncOp('historial', String(entry.id), entry, 'set');
+  _dbPersistFolioCounter();
 }
 function dbSavePrestamo(d) {
   _syncOp('prestamos', String(d.id), d, 'set');
@@ -7335,11 +7345,10 @@ async function _checkNuevoDia() {
   await _loadArchivedDias();
 }
 
-// Patch dbSaveNegocio to also persist folioCounter in config/dia
-const _origDbSaveHistorial = dbSaveHistorial;
-function dbSaveHistorial(entry) {
-  _origDbSaveHistorial(entry);
-  // Also update folioCounter in config/dia
+// Persist folioCounter in config/dia whenever a historial entry is saved
+// NOTE: dbSaveHistorial is NOT redefined here to avoid infinite recursion.
+// Instead we hook via a separate helper called from dbSaveHistorial directly.
+function _dbPersistFolioCounter() {
   if (window._db) {
     window._setDoc(window._doc(window._db, 'config', 'dia_' + _deviceId), {
       fecha: _todayStr(),
