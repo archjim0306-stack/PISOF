@@ -3049,7 +3049,7 @@ select.settings-input {
           <select class="settings-input" id="printer-conn" onchange="updatePrinterConn(this.value)" style="width:180px">
             <option value="wifi">Wi-Fi / IP en red</option>
             <option value="bluetooth">Bluetooth</option>
-            <option value="usb">USB directo</option>
+            <option value="usb" selected>USB directo</option>
           </select>
         </div>
         <div class="settings-row" id="printer-ip-row">
@@ -3059,6 +3059,19 @@ select.settings-input {
         <div class="settings-row" id="printer-bt-row" style="display:none">
           <div class="settings-row-label"><strong>Nombre Bluetooth</strong><span>Nombre del dispositivo BT</span></div>
           <input type="text" class="settings-input" id="setting-printer-bt" placeholder="Ej: POS-58-BT">
+        </div>
+        <div class="settings-row" id="printer-usb-row" style="display:none;flex-direction:column;align-items:flex-start;gap:8px">
+          <div class="settings-row-label"><strong>Impresora USB</strong><span>EasyTime SP-POS891UE4 · WebUSB (Chrome)</span></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn" onclick="usbPairPrinter()" style="background:var(--accent);color:#fff;font-size:13px;padding:7px 16px">
+              &#128268; Conectar impresora USB
+            </button>
+            <span id="usb-status-label" style="font-size:12px;color:var(--text-3)">Sin conectar</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-3);line-height:1.5">
+            Solo funciona en <b>Chrome</b>. La impresora debe estar encendida y conectada por USB.<br>
+            La primera vez Chrome pedirá permiso — selecciona <b>EasyTime</b> o <b>POS Printer</b> de la lista.
+          </div>
         </div>
         <div class="settings-row">
           <div class="settings-row-label"><strong>Ancho del papel</strong><span>Tamaño del rollo</span></div>
@@ -4060,6 +4073,23 @@ function openCobrarTarjetaConImpresion() {
 }
 
 function _printTicketWindow(entry) {
+  // ── USB / ESC/POS path ──────────────────────────────────────
+  const conn = document.getElementById('printer-conn')?.value || 'wifi';
+  if (conn === 'usb') {
+    _printESCPOS(entry)
+      .then(() => showToast('Ticket enviado a impresora ✅', 'success'))
+      .catch(e => {
+        showToast('Error de impresora: ' + e.message, 'error');
+        // Fallback to window print
+        _printTicketWindowFallback(entry);
+      });
+    return;
+  }
+  // ── Ventana del navegador (Wi-Fi / default) ──────────────────
+  _printTicketWindowFallback(entry);
+}
+
+function _printTicketWindowFallback(entry) {
   const html = buildTicketHTML(entry);
   const win = window.open('', '_blank', 'width=360,height=600');
   if (!win) { showToast('Activa ventanas emergentes para imprimir', 'warn'); return; }
@@ -4067,7 +4097,7 @@ function _printTicketWindow(entry) {
     <title>Ticket</title>
     <style>body{margin:12px;font-family:'Courier New',monospace}@media print{button{display:none!important}}</style>
     </head><body>${html}
-    <br><button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#1c6ef3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 Imprimir</button>
+    <br><button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#1c6ef3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">&#128424; Imprimir</button>
     <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script>
     </body></html>`);
   win.document.close();
@@ -6076,9 +6106,185 @@ function _loadSoundSettings(data) {
 
 // ── Printer connection toggle ─────────────
 function updatePrinterConn(val) {
-  document.getElementById('printer-ip-row').style.display = val === 'wifi' ? 'flex' : 'none';
-  document.getElementById('printer-bt-row').style.display = val === 'bluetooth' ? 'flex' : 'none';
+  document.getElementById('printer-ip-row').style.display  = val === 'wifi'      ? 'flex'   : 'none';
+  document.getElementById('printer-bt-row').style.display  = val === 'bluetooth' ? 'flex'   : 'none';
+  document.getElementById('printer-usb-row').style.display = val === 'usb'       ? 'flex'   : 'none';
+  if (val === 'usb') _usbUpdateStatusLabel();
 }
+
+// ══════════════════════════════════════════════════════════════
+//  WebUSB ESC/POS  —  EasyTime SP-POS891UE4
+// ══════════════════════════════════════════════════════════════
+let _usbDevice      = null;   // USBDevice
+let _usbInterface   = null;   // interface number
+let _usbEndpointOut = null;   // OUT endpoint number
+
+// Known VID/PID for EasyTime / generic POS printers
+const USB_PRINTER_FILTERS = [
+  { classCode: 7 },            // USB Printer class (works for almost all POS)
+  { vendorId: 0x0FE6 },       // ICS Advent / common POS chip
+  { vendorId: 0x04B8 },       // Epson (just in case)
+  { vendorId: 0x1FC9 },       // Easy Time Technology
+  { vendorId: 0x0483 },       // STMicro (common in cheap POS)
+  { vendorId: 0x0DD4 },       // Custom / Sewoo
+];
+
+function _usbUpdateStatusLabel() {
+  const el = document.getElementById('usb-status-label');
+  if (!el) return;
+  if (_usbDevice && _usbDevice.opened) {
+    el.textContent = '✅ Conectada: ' + (_usbDevice.productName || 'Impresora USB');
+    el.style.color = 'var(--green, #16a34a)';
+  } else {
+    el.textContent = 'Sin conectar';
+    el.style.color = 'var(--text-3)';
+  }
+}
+
+async function usbPairPrinter() {
+  if (!navigator.usb) {
+    showToast('WebUSB no disponible. Usa Chrome en Windows.', 'error'); return;
+  }
+  try {
+    _usbDevice = await navigator.usb.requestDevice({ filters: USB_PRINTER_FILTERS });
+    await _usbOpenDevice();
+    _usbUpdateStatusLabel();
+    showToast('Impresora USB conectada ✅', 'success');
+  } catch(e) {
+    if (e.name !== 'NotFoundError') showToast('Error USB: ' + e.message, 'error');
+  }
+}
+
+async function _usbOpenDevice() {
+  if (!_usbDevice) return;
+  await _usbDevice.open();
+  if (_usbDevice.configuration === null)
+    await _usbDevice.selectConfiguration(1);
+
+  // Find printer interface & bulk-OUT endpoint
+  for (const iface of _usbDevice.configuration.interfaces) {
+    for (const alt of iface.alternates) {
+      // USB Printer class = 7, or just grab first interface with a bulk-OUT
+      for (const ep of alt.endpoints) {
+        if (ep.direction === 'out' && (ep.type === 'bulk' || ep.type === 'interrupt')) {
+          _usbInterface   = iface.interfaceNumber;
+          _usbEndpointOut = ep.endpointNumber;
+          break;
+        }
+      }
+      if (_usbEndpointOut !== null) break;
+    }
+    if (_usbEndpointOut !== null) break;
+  }
+
+  if (_usbEndpointOut === null) throw new Error('No se encontró endpoint de impresión');
+
+  try { await _usbDevice.claimInterface(_usbInterface); } catch(e) { /* already claimed */ }
+}
+
+async function _usbEnsureOpen() {
+  if (!_usbDevice) throw new Error('No hay impresora USB conectada. Ve a Ajustes → Impresión.');
+  if (!_usbDevice.opened) await _usbOpenDevice();
+}
+
+// ── ESC/POS command builder ───────────────────────────────────
+function _escBuild(entry) {
+  const ESC = 0x1B, GS = 0x1D, LF = 0x0A, HT = 0x09;
+  const b = [];          // byte array
+  const push = (...bytes) => b.push(...bytes);
+  const text  = (s) => { for (const c of s) b.push(c.charCodeAt(0) & 0xFF); };
+  const line  = (s = '') => { text(s); push(LF); };
+  const dline = () => line('--------------------------------');  // 32-char dashes for 80mm
+
+  const biz   = state.bizName || 'PISCIS';
+  const paper = parseInt(document.getElementById('setting-paper')?.value || '80');
+  const cols  = paper >= 80 ? 48 : 32;
+  const dash  = '-'.repeat(cols);
+
+  // Initialize
+  push(ESC, 0x40);                        // ESC @ — init printer
+  push(ESC, 0x74, 0x10);                  // select char table (PC437)
+
+  // ── Header ──
+  push(ESC, 0x61, 0x01);                  // center align
+  push(ESC, 0x21, 0x30);                  // double height+width
+  line(biz.toUpperCase());
+  push(ESC, 0x21, 0x00);                  // normal size
+  if (state.bizAddress) line(state.bizAddress);
+  push(ESC, 0x61, 0x00);                  // left align
+  push(LF);
+
+  // Folio + time
+  line('Folio : ' + (entry.folio || ''));
+  line('Fecha : ' + (entry.time  || ''));
+  line(dash);
+
+  // ── Items ──
+  const items = entry.items || [];
+  const priceCol = 8;
+  for (const item of items) {
+    const total = ((item.qty || 1) * (item.price || 0)).toFixed(2);
+    const nameMax = cols - priceCol - 1;
+    const name = (item.name || '').substring(0, nameMax).padEnd(nameMax);
+    const amt  = ('$' + total).padStart(priceCol);
+    line(name + amt);
+    if (item.qty > 1) {
+      const qtyLine = '  ' + item.qty + ' x $' + (item.price || 0).toFixed(2);
+      line(qtyLine);
+    }
+  }
+
+  // ── Total ──
+  line(dash);
+  push(ESC, 0x21, 0x10);                  // double height
+  const totalStr = 'TOTAL  $' + (entry.total || 0).toFixed(2);
+  line(totalStr.padStart(cols));
+  push(ESC, 0x21, 0x00);
+
+  // ── Payment method ──
+  if (entry.payMethod === 'tarjeta') {
+    push(LF);
+    push(ESC, 0x61, 0x01);
+    push(ESC, 0x21, 0x08);                // bold
+    line('*** PAGO CON TARJETA ***');
+    push(ESC, 0x21, 0x00);
+    push(ESC, 0x61, 0x00);
+  }
+
+  // ── Footer ──
+  push(LF);
+  push(ESC, 0x61, 0x01);
+  const footer = state.ticketFooter || 'Gracias por su compra';
+  line(footer);
+  push(ESC, 0x61, 0x00);
+
+  // Feed + cut
+  push(LF, LF, LF, LF);
+  push(GS, 0x56, 0x41, 0x03);            // partial cut
+
+  return new Uint8Array(b);
+}
+
+// ── Send ESC/POS bytes to USB printer ────────────────────────
+async function _printESCPOS(entry) {
+  await _usbEnsureOpen();
+  const data = _escBuild(entry);
+  await _usbDevice.transferOut(_usbEndpointOut, data);
+}
+
+// ── Auto-reconnect on page load ───────────────────────────────
+(async () => {
+  if (!navigator.usb) return;
+  try {
+    const devices = await navigator.usb.getDevices();
+    if (devices.length) {
+      _usbDevice = devices[0];
+      await _usbOpenDevice();
+      _usbUpdateStatusLabel();
+      console.log('[Piscis] Impresora USB reconectada:', _usbDevice.productName);
+    }
+  } catch(e) { /* silent */ }
+})();
 
 // ── PDF product import ────────────────────
 let _pdfParsedProducts = [];
@@ -6944,6 +7150,10 @@ function _initListeners() {
   window._onSnapshot(window._doc(window._db, 'config', 'modal_settings'), snap => {
     if (snap.exists()) _loadModalSettings(snap.data());
   });
+
+  // Show correct printer rows based on saved/default selection
+  const _printerConnEl = document.getElementById('printer-conn');
+  if (_printerConnEl) updatePrinterConn(_printerConnEl.value);
 }
 
 // ── Public save helpers used throughout app ──
